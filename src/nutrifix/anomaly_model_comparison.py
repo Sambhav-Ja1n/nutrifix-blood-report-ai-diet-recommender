@@ -81,6 +81,29 @@ class PreparedSplit:
     excluded_all_missing_count: int
 
 
+@dataclass
+class RobustMahalanobisScorer:
+    """Regularized MCD score state reusable for previously unseen profiles."""
+
+    location: np.ndarray
+    eigenvectors: np.ndarray
+    regularized_eigenvalues: np.ndarray
+
+    def score_samples(self, values: np.ndarray) -> np.ndarray:
+        values = np.asarray(values, dtype=np.float64)
+        if values.ndim != 2 or values.shape[1] != len(self.location):
+            raise ValueError("Robust Mahalanobis scoring features are misaligned")
+        _require_finite("Robust Mahalanobis scoring inputs", values)
+        projected = (values - self.location) @ self.eigenvectors
+        squared = np.sum(
+            (projected * projected) / self.regularized_eigenvalues,
+            axis=1,
+        )
+        scores = np.sqrt(np.maximum(squared, 0.0))
+        _require_finite("Robust Mahalanobis anomaly scores", scores)
+        return scores
+
+
 def _validate_raw_frame(frame: pd.DataFrame, feature_columns: list[str]) -> None:
     required = [ID_COLUMN, *feature_columns]
     missing = [column for column in required if column not in frame.columns]
@@ -208,18 +231,15 @@ def _require_finite(name: str, values: np.ndarray) -> None:
         raise ValueError(f"{name} contains non-finite values")
 
 
-def fit_score_models(
+def fit_reference_models(
     train_x: np.ndarray,
-    test_x: np.ndarray,
     random_seed: int = PRIMARY_SEED,
-) -> tuple[dict[str, np.ndarray], dict]:
-    """Fit all models on reference rows and return higher-is-more-anomalous scores."""
+) -> tuple[dict, dict]:
+    """Fit reusable estimator state on reference rows only."""
     train_x = np.asarray(train_x, dtype=np.float64)
-    test_x = np.asarray(test_x, dtype=np.float64)
-    if train_x.ndim != 2 or test_x.ndim != 2 or train_x.shape[1] != test_x.shape[1]:
-        raise ValueError("Model input matrices have incompatible dimensions")
+    if train_x.ndim != 2:
+        raise ValueError("Reference model inputs must be a two-dimensional matrix")
     _require_finite("Reference model inputs", train_x)
-    _require_finite("Held-out model inputs", test_x)
     n_train, n_features = train_x.shape
     if n_train < 2:
         raise ValueError("At least two reference participants are required")
@@ -252,12 +272,8 @@ def fit_score_models(
             nu=OCSVM_NU,
         ),
     }
-    scores: dict[str, np.ndarray] = {}
-    for name, model in models.items():
+    for model in models.values():
         model.fit(train_x)
-        # scikit-learn score_samples returns larger values for more inlier-like rows.
-        scores[name] = -np.asarray(model.score_samples(test_x), dtype=np.float64)
-        _require_finite(f"{name} anomaly scores", scores[name])
 
     # A one-hidden-layer MLP trained to reconstruct its own reference inputs
     # provides a compact regularized autoencoder without a new deep-learning
@@ -280,18 +296,12 @@ def fit_score_models(
         tol=AE_TOL,
     )
     autoencoder.fit(train_x, train_x)
-    reconstructed = np.asarray(autoencoder.predict(test_x), dtype=np.float64)
-    if reconstructed.shape != test_x.shape:
-        raise RuntimeError("Autoencoder reconstruction has an unexpected shape")
-    scores["regularized_autoencoder"] = np.mean(
-        np.square(test_x - reconstructed), axis=1
-    )
-    _require_finite("regularized_autoencoder anomaly scores", scores["regularized_autoencoder"])
+    models["regularized_autoencoder"] = autoencoder
 
-    mahalanobis_scores, covariance_details = robust_mahalanobis_scores(
-        train_x, test_x, random_seed=random_seed
+    robust_model, covariance_details = fit_robust_mahalanobis(
+        train_x, random_seed=random_seed
     )
-    scores["robust_mahalanobis"] = mahalanobis_scores
+    models["robust_mahalanobis"] = robust_model
     fit_details = {
         "robust_mahalanobis": covariance_details,
         "regularized_autoencoder": {
@@ -314,17 +324,69 @@ def fit_score_models(
             "score": "mean squared reconstruction error per held-out row; higher is more anomalous",
         },
     }
-    return scores, fit_details
+    return models, fit_details
 
 
-def robust_mahalanobis_scores(
+def score_reference_models(models: dict, values: np.ndarray) -> dict[str, np.ndarray]:
+    """Score rows with fitted models; higher scores mean more anomalous."""
+    values = np.asarray(values, dtype=np.float64)
+    if values.ndim != 2:
+        raise ValueError("Scoring inputs must be a two-dimensional matrix")
+    _require_finite("Scoring inputs", values)
+    expected = {
+        "isolation_forest", "local_outlier_factor", "one_class_svm",
+        "regularized_autoencoder", "robust_mahalanobis",
+    }
+    if set(models) != expected:
+        raise ValueError("Fitted model collection does not contain the five expected models")
+    scores = {}
+    for name in ("isolation_forest", "local_outlier_factor", "one_class_svm"):
+        model = models[name]
+        if values.shape[1] != model.n_features_in_:
+            raise ValueError(f"{name} scoring feature count does not match fitted model")
+        # These APIs return larger values for more inlier-like rows.
+        scores[name] = -np.asarray(model.score_samples(values), dtype=np.float64)
+        _require_finite(f"{name} anomaly scores", scores[name])
+
+    autoencoder = models["regularized_autoencoder"]
+    if values.shape[1] != autoencoder.n_features_in_:
+        raise ValueError("Autoencoder scoring feature count does not match fitted model")
+    reconstructed = np.asarray(autoencoder.predict(values), dtype=np.float64)
+    if reconstructed.shape != values.shape:
+        raise RuntimeError("Autoencoder reconstruction has an unexpected shape")
+    scores["regularized_autoencoder"] = np.mean(
+        np.square(values - reconstructed), axis=1
+    )
+    _require_finite("regularized_autoencoder anomaly scores", scores["regularized_autoencoder"])
+    scores["robust_mahalanobis"] = models["robust_mahalanobis"].score_samples(values)
+    _require_finite("Robust Mahalanobis anomaly scores", scores["robust_mahalanobis"])
+    return scores
+
+
+def fit_score_models(
     train_x: np.ndarray,
     test_x: np.ndarray,
     random_seed: int = PRIMARY_SEED,
-) -> tuple[np.ndarray, dict]:
-    """Use MCD covariance with an explicit eigenvalue floor for stability."""
+) -> tuple[dict[str, np.ndarray], dict]:
+    """Fit on reference rows and score held-out rows with shared model code."""
     train_x = np.asarray(train_x, dtype=np.float64)
     test_x = np.asarray(test_x, dtype=np.float64)
+    if train_x.ndim != 2 or test_x.ndim != 2 or train_x.shape[1] != test_x.shape[1]:
+        raise ValueError("Model input matrices have incompatible dimensions")
+    _require_finite("Held-out model inputs", test_x)
+    models, fit_details = fit_reference_models(train_x, random_seed=random_seed)
+    return score_reference_models(models, test_x), fit_details
+
+
+def fit_robust_mahalanobis(
+    train_x: np.ndarray,
+    random_seed: int = PRIMARY_SEED,
+) -> tuple[RobustMahalanobisScorer, dict]:
+    """Fit reusable MCD covariance state with an explicit eigenvalue floor."""
+    train_x = np.asarray(train_x, dtype=np.float64)
+    if train_x.ndim != 2:
+        raise ValueError("Robust covariance reference inputs must be two-dimensional")
+    _require_finite("Robust covariance reference inputs", train_x)
     if train_x.shape[0] <= train_x.shape[1] + 1:
         raise ValueError(
             "Robust covariance estimation requires more training rows than features + 1"
@@ -381,15 +443,11 @@ def robust_mahalanobis_scores(
             f"{regularized_condition}"
         )
 
-    centered = test_x - location
-    projected = centered @ eigenvectors
-    squared_distance = np.sum(
-        (projected * projected) / regularized_eigenvalues, axis=1
+    model = RobustMahalanobisScorer(
+        location=location,
+        eigenvectors=eigenvectors,
+        regularized_eigenvalues=regularized_eigenvalues,
     )
-    if np.any(squared_distance < -tolerance):
-        raise RuntimeError("Mahalanobis calculation produced negative squared distances")
-    scores = np.sqrt(np.maximum(squared_distance, 0.0))
-    _require_finite("Robust Mahalanobis anomaly scores", scores)
     details = {
         "estimator": "Minimum Covariance Determinant (MinCovDet)",
         "random_seed": random_seed,
@@ -401,7 +459,17 @@ def robust_mahalanobis_scores(
         "covariance_regularized": singular or bool(np.min(eigenvalues) < eigenvalue_floor),
         "score_direction": "larger robust Mahalanobis distance is more anomalous",
     }
-    return scores, details
+    return model, details
+
+
+def robust_mahalanobis_scores(
+    train_x: np.ndarray,
+    test_x: np.ndarray,
+    random_seed: int = PRIMARY_SEED,
+) -> tuple[np.ndarray, dict]:
+    """Fit and score MCD covariance, preserving the comparison API."""
+    model, details = fit_robust_mahalanobis(train_x, random_seed=random_seed)
+    return model.score_samples(test_x), details
 
 
 def top_k_selection(scores: np.ndarray, fractions=TOP_FRACTIONS) -> tuple[dict, np.ndarray]:

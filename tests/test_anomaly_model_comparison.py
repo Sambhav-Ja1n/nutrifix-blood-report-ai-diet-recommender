@@ -147,6 +147,10 @@ class ComparisonTests(unittest.TestCase):
     def test_non_finite_score_inputs_fail(self):
         with self.assertRaisesRegex(ValueError, "non-finite"):
             top_k_selection(np.array([1.0, np.inf]))
+        train = np.ones((100, 3))
+        train[0, 0] = np.nan
+        with self.assertRaisesRegex(ValueError, "non-finite"):
+            robust_mahalanobis_scores(train, np.ones((1, 3)))
 
 
 if __name__ == "__main__":

@@ -76,7 +76,7 @@ class ReportApiTests(unittest.IsolatedAsyncioTestCase):
             analysis.json()["reference_range_comparisons"][0]["range_status"],
             "within_supplied_range",
         )
-        self.assertEqual(analysis.json()["statistical_anomaly"]["status"], "not_evaluated")
+        self.assertEqual(analysis.json()["statistical_anomaly"]["status"], "insufficient_data")
 
         with patch(
             "api.generate_food_recommendations",
@@ -193,8 +193,65 @@ class ReportApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             payload["reference_range_comparisons"][0]["name"], "Hemoglobin"
         )
-        self.assertEqual(payload["statistical_anomaly"]["status"], "not_evaluated")
+        self.assertEqual(payload["statistical_anomaly"]["status"], "insufficient_data")
         self.assertIn("not a diagnosis", payload["explanations"][0]["text"])
+
+    async def test_complete_reviewed_profile_is_passed_to_exploratory_scorer(self):
+        from src.nutrifix.anomaly_model_comparison import FEATURE_COLUMNS
+
+        unit_by_column = {
+            "LBXWBCSI": "10^3 cells/uL", "LBXLYPCT": "%", "LBXMOPCT": "%",
+            "LBXNEPCT": "%", "LBXEOPCT": "%", "LBXBAPCT": "%",
+            "LBXRBCSI": "10^6 cells/uL", "LBXHGB": "g/dL", "LBXHCT": "%",
+            "LBXMCVSI": "fL", "LBXMCHSI": "pg", "LBXMC": "g/dL",
+            "LBXRDW": "%", "LBXPLTSI": "10^3 cells/uL", "LBXMPSI": "fL",
+        }
+        markers = []
+        for index, column in enumerate(FEATURE_COLUMNS):
+            markers.append({
+                "canonical_biomarker": column,
+                "name": column,
+                "value": 1.0 + index,
+                "unit": unit_by_column[column],
+                "reference_range": "0 - 100",
+                "reviewed_by_user": True,
+            })
+        expected = {
+            "status": "scored",
+            "models": {},
+            "limitations": ["exploratory only"],
+        }
+        with patch("api.score_reviewed_profile", return_value=expected) as scorer:
+            response = await self.request("POST", "/api/reports/analyze", json={"biomarkers": markers})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["statistical_anomaly"], expected)
+        received = scorer.call_args.args[0]
+        self.assertEqual(set(received), set(FEATURE_COLUMNS))
+        self.assertNotIn("SEQN", received)
+
+    async def test_unavailable_reference_bundle_has_safe_status(self):
+        from src.nutrifix.anomaly_model_comparison import FEATURE_COLUMNS
+
+        # Reuse the complete-profile unit construction above via canonical names;
+        # units are checked by the request schema before scoring is attempted.
+        unit_by_column = {
+            "LBXWBCSI": "10^3 cells/uL", "LBXLYPCT": "%", "LBXMOPCT": "%",
+            "LBXNEPCT": "%", "LBXEOPCT": "%", "LBXBAPCT": "%",
+            "LBXRBCSI": "10^6 cells/uL", "LBXHGB": "g/dL", "LBXHCT": "%",
+            "LBXMCVSI": "fL", "LBXMCHSI": "pg", "LBXMC": "g/dL",
+            "LBXRDW": "%", "LBXPLTSI": "10^3 cells/uL", "LBXMPSI": "fL",
+        }
+        markers = [{
+            "canonical_biomarker": column, "name": column, "value": 1.0,
+            "unit": unit_by_column[column], "reference_range": "0 - 100",
+            "reviewed_by_user": True,
+        } for column in FEATURE_COLUMNS]
+        with patch("api.score_reviewed_profile", side_effect=__import__(
+            "src.nutrifix.report_scoring", fromlist=["ScoringArtifactUnavailable"]
+        ).ScoringArtifactUnavailable("missing")):
+            response = await self.request("POST", "/api/reports/analyze", json={"biomarkers": markers})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["statistical_anomaly"]["status"], "model_unavailable")
 
     async def test_unreviewed_and_unsupported_units_cannot_reach_analysis(self):
         unreviewed = await self.request(

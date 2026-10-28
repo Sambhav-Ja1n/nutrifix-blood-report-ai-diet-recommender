@@ -147,6 +147,6 @@ def analyze_reviewed_report(request: ReviewedReportRequest) -> dict:
             "Reference comparisons use only intervals supplied in the report and confirmed by the user.",
             "OCR confidence and user confirmation do not establish clinical correctness.",
             "An out-of-range result is not a diagnosis; review results with a qualified clinician.",
-            "Statistical anomaly scores are unavailable for individual reports.",
+            "Statistical anomaly scores are exploratory reference-cohort comparisons, not probabilities or diagnoses.",
         ],
     }

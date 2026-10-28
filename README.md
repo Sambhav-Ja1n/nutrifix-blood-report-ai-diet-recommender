@@ -7,7 +7,7 @@ NutriFix is a research prototype for extracting a small set of values from suppo
 ## What is implemented
 
 - A FastAPI service with local text/OCR extraction, a strict user-confirmed report-analysis contract, report-supplied interval comparisons, and a guarded AI nutrition-education endpoint.
-- A React/Vite interface for report upload and nutrition-guidance requests.
+- A React/Vite interface with upload, editable extraction review, explicit confirmation, report-range analysis, exploratory score display, and optional nutrition education.
 - A separate Streamlit explorer for the NHANES cohort and the existing Isolation Forest outputs.
 - Scripts to verify downloaded files, merge NHANES 2017–2018 CBC, demographics, and ferritin data, audit data quality, prepare CBC features, and run an Isolation Forest baseline.
 - Exploratory anomaly explanations, participant reports, and sensitivity checks.
@@ -38,11 +38,25 @@ flowchart TD
   L --> R[Unverified extraction candidates]
   R --> S[User confirmation and canonical/unit validation]
   S --> T[Report-supplied range comparison and explanation]
-  T --> U[Statistical anomaly status: not evaluated for reports]
+  T --> U[Exploratory reference-cohort anomaly scoring]
   S --> M[Guarded Gemini nutrition-education request]
 ```
 
-The API/UI path and the NHANES cohort-analysis path are separate. The comparison script reads the merged local dataset directly and writes its outputs under `outputs/metrics/`; it does not replace the report API. The backend requires an explicit user-confirmed marker and canonical unit before report analysis or recommendations. Its report-analysis endpoint only compares values with ranges supplied in that report. It does not yet deploy a statistical model for individual reports, and the frontend has not yet been updated with the review step.
+The API/UI path and the NHANES cohort-analysis path are separate. The comparison script reads the merged local dataset directly and writes its outputs under `outputs/metrics/`; it does not replace the report API. The frontend supports upload → editable candidate review → explicit confirmation → analysis → optional nutrition education. A Vite development proxy forwards `/api` to the local FastAPI service. Report analysis compares values only with ranges supplied in the report and can show exploratory model rankings when all 15 required CBC features are confirmed and the local scoring bundle is available.
+
+## Application screenshots
+
+The review and results screenshots use a clearly labeled synthetic PDF created for the local browser check. It contains no real patient data. The recommendation screenshot shows the input form; a Gemini response was not generated for the screenshots.
+
+| Screen | Preview |
+| --- | --- |
+| Landing page | ![NutriFix landing page](docs/screenshots/01-landing-page.png) |
+| Upload | ![Report upload screen](docs/screenshots/02-report-upload.png) |
+| Extraction review | ![Synthetic candidate review](docs/screenshots/03-extraction-review.png) |
+| Results | ![Synthetic report results and exploratory scores](docs/screenshots/04-results-dashboard.png) |
+| Nutrition guidance form | ![Nutrition guidance form](docs/screenshots/05-recommendations.png) |
+| Methodology | ![NutriFix methodology section](docs/screenshots/06-methodology.png) |
+| Mobile layout | ![NutriFix mobile landing layout](docs/screenshots/07-mobile-layout.png) |
 
 ## Repository layout
 
@@ -106,11 +120,13 @@ npm ci
 npm run dev
 ```
 
-The client calls the local API at `http://127.0.0.1:8000`. In another terminal, from the project root with the Python environment activated, start the API:
+The Vite dev server proxies `/api` to the local API. In another terminal, from the project root with the Python environment activated, start FastAPI:
 
 ```bash
-uvicorn api:app --reload
+uvicorn api:app --reload --host 127.0.0.1 --port 8000
 ```
+
+Open the Vite address printed by `npm run dev`. Report extraction and analysis run locally. Optional nutrition recommendations send confirmed structured biomarker values and dietary preferences to Google Gemini when configured; they are not available offline.
 
 The FastAPI health endpoint is `/api/health`; interactive API documentation is provided by FastAPI at `/docs` while the local service is running.
 
@@ -154,7 +170,7 @@ The model-comparison, report-extraction, and API workflow tests use Python's sta
 python -m unittest discover -s tests -v
 ```
 
-Last verified on 2026-10-28 in `mlenv`: 37 tests passed. The integration test exercises synthetic upload → extraction → explicit review → supplied-range analysis → mocked recommendation generation. Recommendation response tests also use a fake SDK client; they do not call Gemini. These tests do not establish clinical or OCR accuracy. `scripts/test_pipeline_outputs.py` is a separate output-check script and requires the generated baseline prediction, explanation, and report files to be present.
+Last verified on 2026-10-28 in `mlenv`: 42 tests passed. Tests use synthetic uploads, an in-memory synthetic cohort for model fitting, and mocked recommendation responses; they do not call Gemini. A separate local browser check used a labeled synthetic CBC PDF through upload, review, and analysis, and verified five model scores. These checks do not establish clinical or OCR accuracy. `scripts/test_pipeline_outputs.py` is a separate output-check script and requires the generated baseline prediction, explanation, and report files to be present.
 
 ## Anomaly-detection limitations
 
@@ -169,13 +185,15 @@ The report API compares values only with intervals supplied by the user from the
 - The API reads uploaded content into memory for processing. If the recommendations endpoint is called, the supplied structured biomarkers and preferences are sent to Google's Gemini API; review the provider's terms and your privacy obligations before using real reports.
 - Treat extracted values and supplied ranges as unverified inputs. The API's parser supports only a narrow set of text patterns and does not validate clinical correctness.
 - The API has no user accounts, report persistence, or access-control layer. Run it locally only. Full extracted text, page lines, and unresolved source lines are omitted from responses by default; `include_source_text=true` explicitly opts into returning them for audit. Candidate biomarker rows retain field-level source snippets. Do not expose the service publicly or send real reports until access control and privacy handling are designed.
-- Analysis and recommendation requests require `reviewed_by_user: true` for each marker. This is an explicit client confirmation signal, not proof that a person independently verified the value. The frontend review/correction step remains to be implemented.
-- Report-level statistical anomaly scoring is explicitly returned as `not_evaluated`. The current five-model experiment compares NHANES cohort rankings and is not a deployed patient-scoring model.
+- Analysis and recommendation requests require `reviewed_by_user: true` for each marker. The frontend provides an editable review step, but this client confirmation signal is not proof that a person independently verified the value.
+- Complete user-reviewed CBC profiles can be scored against a locally built NHANES 2017–2018 reference bundle using the five exploratory models. Every model requires all 15 selected features in their canonical units; incomplete profiles receive `insufficient_data`. Scores are outlier rankings, not probabilities, diagnoses, or medical advice. The held-out calibration participants provide only an empirical comparison distribution, not labeled normal or disease examples.
+- Build the local reference bundle with `python scripts/build_report_scoring_model.py`. It writes to `outputs/models/report_scoring_v1/` and refuses to overwrite an existing directory. Choose another path with `--output-dir` for a new run. The ignored model artifact is local and must be rebuilt from the NHANES parquet dataset on another machine.
+- The individual scoring bundle stores model and preprocessing parameters plus held-out score distributions, but no NHANES participant IDs. It uses the same seeded 75/25 reference/calibration split and training-only preprocessing as the cohort comparison. Profiles with any missing model feature are not scored.
 - NutriFix is a research prototype. It is not a substitute for a clinician, laboratory, or validated medical device. Do not use it for diagnosis, treatment, or urgent-care decisions.
 
 ## Roadmap
 
-- Add the frontend review/correction step and connect it to the reviewed report-analysis contract after backend acceptance testing.
+- Add UI-level automated browser tests for file upload, candidate correction, analysis errors, and recommendation-service failures.
 - Expand and evaluate OCR/parser coverage on a manually verified, appropriately deidentified corpus before reporting accuracy metrics.
 - Source and review clinically applicable reference intervals before adding a clinical-rules baseline.
 - Evaluate anomaly methods on appropriate labeled or clinician-reviewed data before making clinical claims.

@@ -24,6 +24,12 @@ from src.nutrifix.report_workflow import (
     ReviewedReportRequest,
     analyze_reviewed_report,
 )
+from src.nutrifix.report_scoring import (
+    InsufficientReportProfile,
+    ReportScoringError,
+    ScoringArtifactUnavailable,
+    score_reviewed_profile,
+)
 
 logger = logging.getLogger("nutrifix.api")
 _PROCESSING_WORKERS = 2
@@ -221,7 +227,38 @@ async def report_food_recommendations(request: FoodRecommendationRequest = Body(
 async def analyze_report(request: ReviewedReportRequest = Body(...)):
     """Compare user-confirmed values with only the ranges supplied in the report."""
     try:
-        return analyze_reviewed_report(request)
+        result = analyze_reviewed_report(request)
+        values_by_column = {
+            marker.canonical_biomarker: marker.value
+            for marker in request.biomarkers
+        }
+        try:
+            anomaly_result = score_reviewed_profile(values_by_column)
+        except InsufficientReportProfile as exc:
+            anomaly_result = {
+                "status": "insufficient_data",
+                "required_feature_count": 15,
+                "missing_biomarkers": exc.missing_features,
+                "message": "A statistical score requires all 15 reviewed CBC model biomarkers.",
+            }
+        except ScoringArtifactUnavailable:
+            anomaly_result = {
+                "status": "model_unavailable",
+                "message": "The local reference scoring model is not built or does not match the current schema.",
+            }
+        except ReportScoringError:
+            anomaly_result = {
+                "status": "scoring_failed",
+                "message": "The reviewed profile could not be scored safely.",
+            }
+        except Exception:
+            logger.exception("Reference model scoring failed")
+            anomaly_result = {
+                "status": "scoring_failed",
+                "message": "The reviewed profile could not be scored safely.",
+            }
+        result["statistical_anomaly"] = anomaly_result
+        return result
     except Exception as exc:
         logger.exception("Reviewed report analysis failed")
         raise HTTPException(

@@ -1,1011 +1,229 @@
-
-
 import { useRef, useState } from "react";
 
 import "./App.css";
-import "./FoodRecommendations.css";
 
-
-
-const features = [
-
-  {
-
-    number: "01",
-
-    title: "Understand your results",
-
-    description:
-
-      "Explore blood test values with clear explanations and laboratory reference ranges.",
-
-    icon: "⌁",
-
-  },
-
-  {
-
-    number: "02",
-
-    title: "Find what needs attention",
-
-    description:
-
-      "Identify results outside supplied reference ranges and understand what they may mean.",
-
-    icon: "◎",
-
-  },
-
-  {
-
-    number: "03",
-
-    title: "Make informed choices",
-
-    description:
-
-      "Explore evidence-based nutrition guidance for healthier everyday decisions.",
-
-    icon: "✳",
-
-  },
-
+const API = "/api/reports";
+const BIOMARKERS = [
+  ["LBXWBCSI", "White blood cell count", "10^3 cells/uL"],
+  ["LBXLYPCT", "Lymphocyte percentage", "%"],
+  ["LBXMOPCT", "Monocyte percentage", "%"],
+  ["LBXNEPCT", "Neutrophil percentage", "%"],
+  ["LBXEOPCT", "Eosinophil percentage", "%"],
+  ["LBXBAPCT", "Basophil percentage", "%"],
+  ["LBDLYMNO", "Absolute lymphocyte count", "10^3 cells/uL"],
+  ["LBDMONO", "Absolute monocyte count", "10^3 cells/uL"],
+  ["LBDNENO", "Absolute neutrophil count", "10^3 cells/uL"],
+  ["LBDEONO", "Absolute eosinophil count", "10^3 cells/uL"],
+  ["LBDBANO", "Absolute basophil count", "10^3 cells/uL"],
+  ["LBXRBCSI", "Red blood cell count", "10^6 cells/uL"],
+  ["LBXHGB", "Hemoglobin", "g/dL"],
+  ["LBXHCT", "Hematocrit", "%"],
+  ["LBXMCVSI", "Mean corpuscular volume", "fL"],
+  ["LBXMCHSI", "Mean corpuscular hemoglobin", "pg"],
+  ["LBXMC", "Mean corpuscular hemoglobin concentration", "g/dL"],
+  ["LBXRDW", "Red cell distribution width", "%"],
+  ["LBXPLTSI", "Platelet count", "10^3 cells/uL"],
+  ["LBXMPSI", "Mean platelet volume", "fL"],
+  ["LBXNRBC", "Nucleated red blood cells", "cells per 100 WBC"],
+  ["LBXFER", "Ferritin", "ng/mL"],
 ];
 
-
+const initialReview = (candidate) => ({
+  biomarker: candidate.canonical_biomarker || "",
+  value: candidate.value ?? "",
+  unit: candidate.unit || "",
+  reference_range: candidate.reference_range || "",
+  confirmed: false,
+});
 
 function App() {
-
   const [page, setPage] = useState("home");
-
-  const [menuOpen, setMenuOpen] = useState(false);
-
   const [file, setFile] = useState(null);
-
+  const [extraction, setExtraction] = useState(null);
+  const [review, setReview] = useState([]);
+  const [analysis, setAnalysis] = useState(null);
+  const [recommendations, setRecommendations] = useState(null);
   const [error, setError] = useState("");
-
-  const [loading, setLoading] = useState(false);
-
-  const [result, setResult] = useState(null);
+  const [busy, setBusy] = useState(false);
   const [diet, setDiet] = useState("vegetarian");
-  const [allowEggs, setAllowEggs] = useState(false);
   const [allergies, setAllergies] = useState("");
-  const [foodPreferences, setFoodPreferences] = useState("Indian meals");
+  const [preferences, setPreferences] = useState("Indian meals");
   const [goal, setGoal] = useState("general");
   const [budget, setBudget] = useState("moderate");
+  const [allowEggs, setAllowEggs] = useState(false);
   const [age, setAge] = useState("");
   const [dietaryGuidance, setDietaryGuidance] = useState("");
-  const [recommendationLoading, setRecommendationLoading] = useState(false);
-  const [recommendationError, setRecommendationError] = useState("");
-  const [recommendations, setRecommendations] = useState(null);
-
   const fileInput = useRef(null);
 
-
-
-  function openUpload() {
-
+  const chooseFile = (nextFile) => {
     setError("");
-    setRecommendationError("");
-
-    setPage("upload");
-
-    window.scrollTo({ top: 0, behavior: "smooth" });
-
-  }
-
-
-
-  function goHome() {
-
-    setPage("home");
-
-    setError("");
-
-    window.scrollTo({ top: 0, behavior: "smooth" });
-
-  }
-
-
-
-  function selectFile(selectedFile) {
-
-    setError("");
-
-
-
-    if (!selectedFile) return;
-
-
-
-    const allowedTypes = [
-
-      "application/pdf",
-
-      "image/jpeg",
-
-      "image/png",
-
-    ];
-
-
-
-    const extensionAllowed = /\.(pdf|jpe?g|png)$/i.test(selectedFile.name);
-
-
-
-    if (
-
-      !allowedTypes.includes(selectedFile.type) &&
-
-      !extensionAllowed
-
-    ) {
-
-      setError("Please select a PDF, JPG, or PNG file.");
-
+    if (!nextFile) return;
+    if (!/\.(pdf|jpe?g|png)$/i.test(nextFile.name)) {
+      setError("Choose a PDF, JPG, or PNG file.");
       return;
-
     }
-
-
-
-    if (selectedFile.size > 15 * 1024 * 1024) {
-
-      setError("The file must be smaller than 15 MB.");
-
+    if (nextFile.size > 15 * 1024 * 1024) {
+      setError("The file must be 15 MB or smaller.");
       return;
-
     }
+    setFile(nextFile);
+  };
 
-
-
-    setFile(selectedFile);
-
-  }
-
-
-
-  function handleFileChange(event) {
-    selectFile(event.target.files?.[0]);
-    event.target.value = "";
-  }
-
-  async function handleAnalyze() {
-    if (!file || loading) return;
-    setLoading(true);
+  const startReview = async () => {
+    if (!file || busy) return;
+    setBusy(true);
     setError("");
-    setRecommendationError("");
-    setResult(null);
-    setRecommendations(null);
-
     try {
-      const formData = new FormData();
-      formData.append("file", file);
-      const response = await fetch("http://127.0.0.1:8000/api/reports/extract", {
+      const body = new FormData();
+      body.append("file", file);
+      const response = await fetch(`${API}/extract`, { method: "POST", body });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Report extraction failed.");
+      setExtraction(data);
+      setReview((data.biomarkers || []).map(initialReview));
+      setPage("review");
+    } catch (cause) {
+      setError(cause.message || "Could not connect to the local NutriFix API.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const updateReview = (index, field, value) => {
+    setReview((current) => current.map((row, rowIndex) =>
+      rowIndex === index ? { ...row, [field]: value, ...(field !== "confirmed" ? { confirmed: false } : {}) } : row,
+    ));
+  };
+
+  const analyzeReviewed = async () => {
+    const confirmed = review.filter((row) => row.confirmed && row.biomarker && row.value !== "");
+    if (!confirmed.length) {
+      setError("Confirm at least one complete biomarker row before analysis.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      const response = await fetch(`${API}/analyze`, {
         method: "POST",
-        body: formData,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ biomarkers: confirmed.map((row) => ({
+          canonical_biomarker: row.biomarker,
+          name: BIOMARKERS.find(([code]) => code === row.biomarker)?.[1] || row.biomarker,
+          value: Number(row.value),
+          unit: row.unit,
+          reference_range: row.reference_range,
+          reviewed_by_user: true,
+        })) }),
       });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.detail || "Unable to process this report.");
-      setResult(data);
-    } catch (err) {
-      setError(err.message || "Could not connect to NutriFix. Check that the backend is running.");
+      if (!response.ok) throw new Error(data.detail || "Analysis failed.");
+      setAnalysis(data);
+      setRecommendations(null);
+      setPage("results");
+    } catch (cause) {
+      setError(cause.message || "Could not analyze the reviewed values.");
     } finally {
-      setLoading(false);
+      setBusy(false);
     }
-  }
+  };
 
-  async function handleGetRecommendations() {
-    if (!result?.biomarkers?.length || recommendationLoading) return;
-    setRecommendationLoading(true);
-    setRecommendationError("");
-    setRecommendations(null);
+  const getRecommendations = async () => {
+    const usable = (analysis?.reference_range_comparisons || []).filter((row) => row.range_status !== "needs_review");
+    if (!usable.length) {
+      setError("Recommendations need at least one reviewed result with a clear laboratory range.");
+      return;
+    }
+    setBusy(true);
+    setError("");
     try {
-      const response = await fetch("http://127.0.0.1:8000/api/reports/recommendations", {
+      const response = await fetch(`${API}/recommendations`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           diet,
-          allow_eggs: diet === "vegetarian" ? allowEggs : false,
-          allergies: allergies.split(",").map((item) => item.trim()).filter(Boolean),
-          food_preferences: foodPreferences.split(",").map((item) => item.trim()).filter(Boolean),
+          allow_eggs: diet === "vegetarian" && allowEggs,
+          allergies: allergies.split(",").map((value) => value.trim()).filter(Boolean),
+          food_preferences: preferences.split(",").map((value) => value.trim()).filter(Boolean),
           goal,
           budget,
           age: age.trim() ? Number(age) : null,
           dietary_guidance: dietaryGuidance.trim(),
-          biomarkers: result.biomarkers,
+          biomarkers: usable.map((row) => ({ ...row, reviewed_by_user: true })),
         }),
       });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.detail || "Could not generate food recommendations.");
+      if (!response.ok) throw new Error(data.detail || "Could not prepare food guidance.");
       setRecommendations(data.data);
-    } catch (err) {
-      setRecommendationError(err.message || "Could not connect to the AI recommendation service.");
+    } catch (cause) {
+      setError(cause.message || "The recommendation service is unavailable.");
     } finally {
-      setRecommendationLoading(false);
+      setBusy(false);
     }
-  }
-
-  return (
-
-    <div className="site-shell">
-
-      <header className="navbar">
-
-        <button className="brand brand-button" onClick={goHome}>
-
-          <span className="brand-mark">N</span>
-
-          <span>nutri<span className="brand-accent">fix</span></span>
-
-        </button>
-
-
-
-        <button
-
-          className="menu-toggle"
-
-          onClick={() => setMenuOpen(!menuOpen)}
-
-          aria-label="Toggle navigation"
-
-        >
-
-          {menuOpen ? "✕" : "☰"}
-
-        </button>
-
-
-
-        <nav className={menuOpen ? "nav-links open" : "nav-links"}>
-
-          <button onClick={() => { goHome(); setMenuOpen(false); }}>
-
-            Home
-
-          </button>
-
-          <a href={page === "home" ? "#how-it-works" : "#upload"} onClick={() => setMenuOpen(false)}>
-
-            How it works
-
-          </a>
-
-          <a href={page === "home" ? "#features" : "#upload"} onClick={() => setMenuOpen(false)}>
-
-            Features
-
-          </a>
-
-          <button className="nav-cta" onClick={() => { openUpload(); setMenuOpen(false); }}>
-
-            Get started <span>↗</span>
-
-          </button>
-
-        </nav>
-
-      </header>
-
-
-
-      {page === "home" ? (
-
-        <main id="home">
-
-          <section className="hero">
-
-            <div className="hero-copy">
-
-              <div className="eyebrow">
-
-                <span className="status-dot" />
-
-                YOUR HEALTH, MADE CLEARER
-
-              </div>
-
-
-
-              <h1>
-
-                Your blood report.
-
-                <br />
-
-                <span>Finally, understood.</span>
-
-              </h1>
-
-
-
-              <p className="hero-description">
-
-                Make sense of your blood test results with clear explanations
-
-                and practical nutrition insights. Less confusion, more informed
-
-                decisions about your health.
-
-              </p>
-
-
-
-              <div className="hero-actions">
-
-                <button className="button-primary" onClick={openUpload}>
-
-                  Analyze my report <span>→</span>
-
-                </button>
-
-                <a className="button-secondary" href="#features">
-
-                  Discover features
-
-                </a>
-
-              </div>
-
-
-
-              <div className="trust-note">
-
-                <span className="trust-icon">✓</span>
-
-                Built for clarity, designed around your health
-
-              </div>
-
-            </div>
-
-
-
-            <div className="hero-visual">
-
-              <div className="decor decor-one" />
-
-              <div className="decor decor-two" />
-
-
-
-              <div className="report-card">
-
-                <div className="report-top">
-
-                  <div>
-
-                    <div className="report-label">NUTRIFIX INSIGHTS</div>
-
-                    <h3>Blood report overview</h3>
-
-                  </div>
-
-                  <div className="report-icon">✳</div>
-
-                </div>
-
-
-
-                <div className="report-divider" />
-
-
-
-                {[
-
-                  ["Hb", "Hemoglobin", "Complete blood count", "g/dL"],
-
-                  ["W", "White blood cells", "Immune system marker", "×10⁹/L"],
-
-                  ["Fe", "Iron markers", "When included in your report", "Units vary"],
-
-                ].map((item) => (
-
-                  <div className="metric-row" key={item[1]}>
-
-                    <div className="metric-icon mint">{item[0]}</div>
-
-                    <div className="metric-info">
-
-                      <strong>{item[1]}</strong>
-
-                      <span>{item[2]}</span>
-
-                    </div>
-
-                    <div className="metric-value">
-
-                      <strong>—</strong>
-
-                      <span>{item[3]}</span>
-
-                    </div>
-
-                  </div>
-
-                ))}
-
-
-
-                <div className="report-footer">
-
-                  <span className="footer-dot" />
-
-                  Sample interface · No patient data
-
-                </div>
-
-              </div>
-
-
-
-              <div className="floating-note">
-
-                <span className="floating-check">✓</span>
-
-                <div>
-
-                  <strong>Clarity over complexity</strong>
-
-                  <span>Health information, made approachable</span>
-
-                </div>
-
-              </div>
-
-
-
-              <div className="hero-orbit">+</div>
-
-            </div>
-
-          </section>
-
-
-
-          <section className="stats-strip">
-
-            <div><strong>Understand</strong><span>Results in plain language</span></div>
-
-            <div><strong>Explore</strong><span>Biomarkers and ranges</span></div>
-
-            <div><strong>Discover</strong><span>Practical nutrition insights</span></div>
-
-          </section>
-
-
-
-          <section className="features-section" id="features">
-
-            <div className="section-heading">
-
-              <span className="section-kicker">WHAT NUTRIFIX DOES</span>
-
-              <h2>From numbers to <span>understanding.</span></h2>
-
-              <p>
-
-                Blood reports can feel overwhelming. NutriFix aims to make the
-
-                information easier to explore and understand.
-
-              </p>
-
-            </div>
-
-
-
-            <div className="feature-grid">
-
-              {features.map((feature) => (
-
-                <article className="feature-card" key={feature.number}>
-
-                  <div className="feature-card-top">
-
-                    <span className="feature-number">{feature.number}</span>
-
-                    <span className="feature-icon">{feature.icon}</span>
-
-                  </div>
-
-                  <h3>{feature.title}</h3>
-
-                  <p>{feature.description}</p>
-
-                  <button className="text-link" onClick={openUpload}>
-
-                    Try NutriFix <span>↗</span>
-
-                  </button>
-
-                </article>
-
-              ))}
-
-            </div>
-
-          </section>
-
-
-
-          <section className="how-section" id="how-it-works">
-
-            <div className="how-copy">
-
-              <span className="section-kicker">A SIMPLER EXPERIENCE</span>
-
-              <h2>Health information should feel <span>human.</span></h2>
-
-              <p>
-
-                Our goal is to connect laboratory results with understandable
-
-                information, while keeping the limits of automated analysis clear.
-
-              </p>
-
-              <button className="button-primary" onClick={openUpload}>
-
-                Start with a report <span>→</span>
-
-              </button>
-
-            </div>
-
-
-
-            <div className="steps-list">
-
-              {[
-
-                ["01", "Bring your results", "Start with a blood report containing your laboratory measurements."],
-
-                ["02", "Explore the details", "Review extracted values, units and the reference ranges supplied by the lab."],
-
-                ["03", "Learn what comes next", "Explore relevant information and questions to discuss with a qualified professional."],
-
-              ].map((step) => (
-
-                <div className="step" key={step[0]}>
-
-                  <span>{step[0]}</span>
-
-                  <div><h3>{step[1]}</h3><p>{step[2]}</p></div>
-
-                </div>
-
-              ))}
-
-            </div>
-
-          </section>
-
-
-
-          <section className="closing-cta" id="about">
-
-            <div className="closing-symbol">✳</div>
-
-            <h2>More understanding.<br />Better-informed choices.</h2>
-
-            <p>
-
-              NutriFix is being developed to make blood report information
-
-              clearer and more accessible.
-
-            </p>
-
-            <button className="button-light" onClick={openUpload}>
-
-              Analyze my report →
-
-            </button>
-
-          </section>
-
-        </main>
-
-      ) : (
-
-        <main className="upload-page" id="upload">
-
-          <button className="back-link" onClick={goHome}>← Back to home</button>
-
-
-
-          <div className="upload-heading">
-
-            <span className="section-kicker">YOUR HEALTH, MADE CLEARER</span>
-
-            <h1>Let's understand <span>your report.</span></h1>
-
-            <p>
-
-              Upload a blood report to get started. You can review the selected
-
-              file before analysis.
-
-            </p>
-
-          </div>
-
-
-
-          <section className="upload-card">
-
-            {!file ? (
-
-              <button
-
-                type="button"
-
-                className="dropzone"
-
-                onClick={() => fileInput.current?.click()}
-
-                onDragOver={(event) => event.preventDefault()}
-
-                onDrop={(event) => {
-
-                  event.preventDefault();
-
-                  selectFile(event.dataTransfer.files?.[0]);
-
-                }}
-
-              >
-
-                <span className="upload-icon">↑</span>
-
-                <strong>Drop your blood report here</strong>
-
-                <span className="dropzone-subtitle">or click to browse your files</span>
-
-                <span className="file-formats">PDF, JPG or PNG · Maximum 15 MB</span>
-
-              </button>
-
-            ) : (
-
-              <div className="selected-file">
-
-                <span className="selected-file-icon">
-
-                  {file.type === "application/pdf" ? "PDF" : "IMG"}
-
-                </span>
-
-                <div className="selected-file-info">
-
-                  <strong>{file.name}</strong>
-
-                  <span>{(file.size / (1024 * 1024)).toFixed(2)} MB · Selected</span>
-
-                </div>
-
-                <button
-
-                  className="remove-file"
-
-                  onClick={() => {
-
-                    setFile(null);
-
-                    setError("");
-
-                  }}
-
-                >
-
-                  Remove
-
-                </button>
-
-              </div>
-
-            )}
-
-
-
-            <input
-
-              ref={fileInput}
-
-              type="file"
-
-              accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
-
-              hidden
-
-              onChange={handleFileChange}
-
-            />
-
-
-
-            {error && <p className="upload-error" role="alert">{error}</p>}
-
-
-
-            <div className="privacy-note">
-
-              <span>♢</span>
-
-              <p>
-
-                <strong>Your health data matters.</strong>
-
-                This is an early prototype. The selected file stays in this
-
-                browser until you connect an analysis service.
-
-              </p>
-
-            </div>
-
-
-
-            <button
-              type="button"
-              className="button-primary upload-continue"
-              disabled={!file || loading}
-              onClick={handleAnalyze}
-            >
-              {loading ? "Analyzing report..." : "Continue to analysis"}
-              {!loading && <span> →</span>}
-            </button>
-
-          </section>
-
-          {result && (
-            <section className="upload-card results-card" aria-live="polite">
-              <div className="upload-heading">
-                <span className="section-kicker">REPORT ANALYZED</span>
-                <h2>Your personalized guidance starts here</h2>
-                <p>{result.filename}</p>
-              </div>
-
-              {result.status === "needs_ocr" ? (
-                <>
-                  <p>
-                    This report appears to need text recognition (OCR), which is
-                    not available in this version. Try a PDF with selectable text
-                    or a clear supported report format.
-                  </p>
-                  <button
-                    type="button"
-                    className="button-primary"
-                    onClick={() => { setResult(null); setFile(null); setError(""); }}
-                  >
-                    Choose another report
-                  </button>
-                </>
-              ) : result.biomarkers?.length > 0 ? (
-                <>
-                  <p className="report-ready-message">
-                    Your report has been processed. Complete your dietary profile
-                    below to receive one combined food-guidance plan. NutriFix uses
-                    the extracted results in the background; technical biomarker
-                    details are not shown in this view.
-                  </p>
-
-                  <section className="food-recommendation-form">
-                    <div className="section-heading">
-                      <span className="section-kicker">YOUR DIETARY PROFILE</span>
-                      <h2>Personalize <span>your food guidance</span></h2>
-                      <p>Tell us what foods suit your routine so recommendations can consider your report and your needs together.</p>
-                    </div>
-
-                    <label className="profile-label" htmlFor="diet-preference">Dietary preference</label>
-                    <select id="diet-preference" value={diet} onChange={(event) => setDiet(event.target.value)} className="profile-select">
-                      <option value="vegan">Vegan</option>
-                      <option value="vegetarian">Vegetarian</option>
-                      <option value="non_vegetarian">Non-vegetarian</option>
-                    </select>
-
-                    {diet === "vegetarian" && (
-                      <label className="profile-checkbox">
-                        <input type="checkbox" checked={allowEggs} onChange={(event) => setAllowEggs(event.target.checked)} />
-                        I eat eggs
-                      </label>
-                    )}
-
-                    <label className="profile-label" htmlFor="allergies">Food allergies or intolerances (comma-separated)</label>
-                    <input id="allergies" className="profile-input" value={allergies} onChange={(event) => setAllergies(event.target.value)} placeholder="e.g. peanuts, milk; leave blank if none" />
-
-                    <label className="profile-label" htmlFor="food-preferences">Food preferences (comma-separated)</label>
-                    <input id="food-preferences" className="profile-input" value={foodPreferences} onChange={(event) => setFoodPreferences(event.target.value)} placeholder="e.g. Indian meals, high-protein foods" />
-
-                    <label className="profile-label" htmlFor="nutrition-goal">Main nutrition goal</label>
-                    <select id="nutrition-goal" className="profile-select" value={goal} onChange={(event) => setGoal(event.target.value)}>
-                      <option value="general">Improve overall nutrition</option>
-                      <option value="weight_management">Weight management</option>
-                      <option value="muscle_gain">Muscle gain and adequate protein</option>
-                      <option value="focus_on_report">Focus on blood-report findings</option>
-                    </select>
-
-                    <label className="profile-label" htmlFor="food-budget">Food budget</label>
-                    <select id="food-budget" className="profile-select" value={budget} onChange={(event) => setBudget(event.target.value)}>
-                      <option value="low">Budget-friendly</option>
-                      <option value="moderate">Moderate</option>
-                      <option value="flexible">Flexible</option>
-                    </select>
-
-                    <label className="profile-label" htmlFor="profile-age">Age (optional)</label>
-                    <input id="profile-age" className="profile-input" type="number" min="1" max="120" value={age} onChange={(event) => setAge(event.target.value)} placeholder="Age in years" />
-
-                    <label className="profile-label" htmlFor="dietary-guidance">Dietary restrictions or clinician guidance (optional)</label>
-                    <textarea id="dietary-guidance" className="profile-input" rows="3" value={dietaryGuidance} onChange={(event) => setDietaryGuidance(event.target.value)} placeholder="Only include guidance you want NutriFix to consider" />
-
-                    {recommendationError && <p className="upload-error" role="alert">{recommendationError}</p>}
-                    <button type="button" className="button-primary" onClick={handleGetRecommendations} disabled={recommendationLoading || !result.biomarkers?.length}>
-                      {recommendationLoading ? "Preparing your food guidance..." : "Get personalized food guidance"}
-                      {!recommendationLoading && <span> →</span>}
-                    </button>
-                  </section>
-
-                  {recommendationLoading && (
-                    <p role="status">Combining your report with your dietary profile. This can take a little while.</p>
-                  )}
-
-                  {recommendations && (() => {
-                    const findings = Array.isArray(recommendations.recommendations) ? recommendations.recommendations : [];
-                    const foodMap = new Map();
-                    const limits = new Map();
-                    findings.forEach((finding) => {
-                      (finding.foods_to_consider || []).forEach((food) => {
-                        const name = String(food.food || "").trim();
-                        if (!name) return;
-                        const key = name.toLocaleLowerCase();
-                        if (!foodMap.has(key)) {
-                          foodMap.set(key, { food: name, reasons: [], mealIdeas: [], findings: [] });
-                        }
-                        const entry = foodMap.get(key);
-                        if (food.reason && !entry.reasons.includes(food.reason)) entry.reasons.push(food.reason);
-                        if (food.meal_idea && !entry.mealIdeas.includes(food.meal_idea)) entry.mealIdeas.push(food.meal_idea);
-                        if (finding.finding && !entry.findings.includes(finding.finding)) entry.findings.push(finding.finding);
-                      });
-                      (finding.foods_to_limit || []).forEach((item) => {
-                        const text = typeof item === "string" ? item : item?.food || item?.name || "";
-                        if (text.trim()) limits.set(text.trim().toLocaleLowerCase(), text.trim());
-                      });
-                    });
-
-                    return (
-                      <section className="food-results" aria-live="polite">
-                        <span className="section-kicker">YOUR FOOD GUIDANCE</span>
-                        <h2>Personalized food <span>guidance</span></h2>
-                        {recommendations.summary && <p className="guidance-summary">{recommendations.summary}</p>}
-
-                        {foodMap.size > 0 ? (
-                          <>
-                            <h3>Foods to consider</h3>
-                            <div className="recommended-food-list">
-                              {[...foodMap.values()].map((food) => (
-                                <article className="recommended-food" key={food.food.toLocaleLowerCase()}>
-                                  <h4>{food.food}</h4>
-                                  {food.reasons.map((reason, index) => <p key={index}>{reason}</p>)}
-                                  {food.mealIdeas.length > 0 && <p><strong>Meal ideas:</strong> {food.mealIdeas.join("; ")}</p>}
-                                  {food.findings.length > 0 && <p className="evidence-note"><strong>Relevant report context:</strong> {food.findings.join(", ")}</p>}
-                                </article>
-                              ))}
-                            </div>
-                          </>
-                        ) : (
-                          <p>No suitable food suggestions were returned. Please try again or consult a qualified dietitian.</p>
-                        )}
-
-                        {findings.some((item) => item.why_it_matters || item.next_steps) && (
-                          <div className="recommendation-notes">
-                            <h3>Why this guidance fits your report</h3>
-                            {findings.filter((item) => item.why_it_matters || item.next_steps).map((item, index) => (
-                              <p key={`${item.finding || "finding"}-${index}`}>
-                                {item.why_it_matters && <><strong>{item.finding || "Report context"}: </strong>{item.why_it_matters}</>}
-                                {item.next_steps && <> {item.next_steps}</>}
-                              </p>
-                            ))}
-                          </div>
-                        )}
-
-                        {limits.size > 0 && (
-                          <div className="recommendation-notes">
-                            <h3>Foods to discuss or moderate</h3>
-                            <ul>{[...limits.values()].map((food) => <li key={food}>{food}</li>)}</ul>
-                          </div>
-                        )}
-
-                        {recommendations.safety_notes?.length > 0 && (
-                          <div className="recommendation-notes">
-                            <h3>Safety notes</h3>
-                            <ul>{recommendations.safety_notes.map((note, index) => <li key={index}>{note}</li>)}</ul>
-                          </div>
-                        )}
-                        {recommendations.limitations?.length > 0 && (
-                          <details className="recommendation-notes">
-                            <summary>Limitations and evidence</summary>
-                            <ul>{recommendations.limitations.map((note, index) => <li key={index}>{note}</li>)}</ul>
-                          </details>
-                        )}
-                      </section>
-                    );
-                  })()}
-                </>
-              ) : (
-                <p>
-                  We could not recognize supported biomarkers in this report, so
-                  NutriFix cannot safely personalize food guidance from it yet.
-                  Try a report with selectable text and laboratory reference ranges.
-                </p>
-              )}
-
-              <p className="upload-disclaimer">
-                NutriFix provides educational information, not a diagnosis or
-                treatment. An AI-generated food plan cannot replace advice from
-                a qualified healthcare professional.
-              </p>
-
-              <button
-                type="button"
-                className="button-primary"
-                onClick={() => {
-                  setResult(null);
-                  setRecommendations(null);
-                  setRecommendationError("");
-                  setError("");
-                  setFile(null);
-                }}
-              >
-                Upload another report
-              </button>
-            </section>
-          )}
-
-          <div className="upload-disclaimer">
-            NutriFix is not a substitute for professional medical advice,
-
-            diagnosis, or treatment.
-
-          </div>
-
-        </main>
-
-      )}
-
-
-
-      <footer className="footer">
-
-        <button className="brand brand-button footer-brand" onClick={goHome}>
-
-          <span className="brand-mark">N</span>
-
-          <span>nutri<span className="brand-accent">fix</span></span>
-
-        </button>
-
-        <p>Making health information easier to understand.</p>
-
-        <span className="footer-disclaimer">
-
-          A developing project, not a substitute for professional medical advice.
-
-        </span>
-
-        <span className="copyright">© {new Date().getFullYear()} NutriFix</span>
-
-      </footer>
-
-    </div>
-
-  );
-
+  };
+
+  const reset = () => {
+    setPage("home"); setFile(null); setExtraction(null); setReview([]);
+    setAnalysis(null); setRecommendations(null); setError("");
+  };
+
+  return <div className="app-shell">
+    <header className="topbar">
+      <button className="brand" onClick={reset} aria-label="NutriFix home"><span className="brand-symbol">N</span><span>nutri<span>fix</span></span></button>
+      <nav aria-label="Main navigation">
+        <button onClick={reset}>Home</button>
+        <a href="#methodology">How it works</a>
+        <button className="nav-action" onClick={() => setPage("upload")}>Analyze a report <span>↗</span></button>
+      </nav>
+    </header>
+
+    {page === "home" && <main>
+      <section className="hero-wrap">
+        <div className="hero-copy">
+          <p className="eyebrow"><span /> A clearer look at your lab report</p>
+          <h1>Understand your results, <em>one step at a time.</em></h1>
+          <p className="hero-lede">Review extracted blood test values, compare them with the ranges printed by your laboratory, and explore cautious nutrition education.</p>
+          <div className="hero-actions"><button className="button-primary" onClick={() => setPage("upload")}>Start with a report <span>→</span></button><a className="button-secondary" href="#methodology">See how it works</a></div>
+          <div className="privacy-line"><span>◇</span> Local prototype · Review is required · No diagnosis</div>
+        </div>
+        <div className="hero-art" aria-label="Illustration of a report review card">
+          <div className="art-orbit orbit-one" /><div className="art-orbit orbit-two" />
+          <article className="sample-card"><div className="sample-card-head"><span className="mini-mark">N</span><div><small>REPORT REVIEW</small><strong>Values are yours to confirm</strong></div><span className="sample-pill">Example</span></div><div className="sample-row"><span className="sample-icon">Hb</span><div><strong>Hemoglobin</strong><small>Extracted candidate · review needed</small></div><b>— <small>g/dL</small></b></div><div className="sample-row"><span className="sample-icon pale">W</span><div><strong>White blood cells</strong><small>Lab supplied interval</small></div><b>— <small>10³/uL</small></b></div><div className="sample-note">Illustrative interface · no patient data</div></article>
+          <div className="float-chip"><span>✓</span> You stay in control</div>
+        </div>
+      </section>
+      <section className="workflow-strip"><div><b>01</b><span><strong>Upload</strong><small>PDF, JPG, or PNG</small></span></div><i>→</i><div><b>02</b><span><strong>Review</strong><small>Correct and confirm</small></span></div><i>→</i><div><b>03</b><span><strong>Understand</strong><small>Explore your results</small></span></div></section>
+      <section className="method-section" id="methodology"><div><p className="eyebrow">THE NUTRIFIX APPROACH</p><h2>Built for clarity.<br /><em>Honest about limits.</em></h2><p>Extraction is a starting point, not a verified result. NutriFix keeps lab range comparisons, statistical outlier rankings, and nutrition guidance as separate pieces of information.</p></div><div className="method-cards"><article><span>01</span><h3>You review first</h3><p>Check every extracted biomarker, value, unit, and range before analysis.</p></article><article><span>02</span><h3>Your report sets the range</h3><p>Range comparisons use only the interval supplied with your report.</p></article><article><span>03</span><h3>Outliers are not diagnoses</h3><p>Exploratory model scores describe statistical similarity, not disease or risk.</p></article></div></section>
+      <section className="notice"><strong>Research prototype</strong><p>NutriFix is not a medical device and cannot diagnose, treat, or replace care from a qualified health professional. Do not use it for urgent decisions.</p></section>
+    </main>}
+
+    {page === "upload" && <main className="workspace"><button className="back-button" onClick={reset}>← Home</button><div className="page-heading"><p className="eyebrow">STEP 1 OF 3 · UPLOAD</p><h1>Start with your report</h1><p>Choose a PDF or image. Your results will remain unverified until you review and confirm them.</p></div>
+      <section className="panel upload-panel"><button className="dropzone" onClick={() => fileInput.current?.click()} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); chooseFile(event.dataTransfer.files?.[0]); }}><span className="upload-glyph">↑</span><strong>Drop your report here</strong><span>or browse files</span><small>PDF, JPG, PNG · up to 15 MB</small></button><input ref={fileInput} type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" hidden onChange={(event) => { chooseFile(event.target.files?.[0]); event.target.value = ""; }} />
+        {file && <div className="file-selected"><span className="file-type">{file.name.toLowerCase().endsWith(".pdf") ? "PDF" : "IMG"}</span><span><strong>{file.name}</strong><small>{(file.size / 1048576).toFixed(2)} MB · selected</small></span><button onClick={() => setFile(null)}>Remove</button></div>}
+        {error && <p className="inline-error" role="alert">{error}</p>}<button className="button-primary full-button" disabled={!file || busy} onClick={startReview}>{busy ? "Processing report…" : "Extract candidate values →"}</button>
+        <p className="privacy-callout">The API omits full source text by default. Extracted fields can still contain sensitive health information; use synthetic reports for demonstrations.</p>
+      </section>
+    </main>}
+
+    {page === "review" && <main className="workspace wide"><button className="back-button" onClick={() => setPage("upload")}>← Upload</button>{/synthetic/i.test(extraction?.filename || "") && <div className="synthetic-banner">SYNTHETIC DEMO DATA — NOT A REAL PATIENT REPORT</div>}<div className="page-heading"><p className="eyebrow">STEP 2 OF 3 · HUMAN REVIEW</p><h1>Check every candidate</h1><p>These values were extracted from <strong>{extraction?.filename}</strong>. Correct them against the original report and confirm each row you want to analyze.</p></div>
+      {!review.length ? <section className="panel empty-state"><h2>No biomarker candidates found</h2><p>Try a clearer report. NutriFix will not invent missing values.</p></section> : <section className="panel review-panel"><div className="review-warning">Extraction is unverified. OCR confidence does not establish that a value is clinically correct.</div><div className="review-table-wrap"><table className="review-table"><thead><tr><th>Biomarker</th><th>Value</th><th>Unit</th><th>Lab range</th><th>Source</th><th>Confirm</th></tr></thead><tbody>{review.map((row, index) => { const candidate = extraction.biomarkers[index]; return <tr key={`${candidate.canonical_biomarker || "unknown"}-${index}`}><td><select aria-label={`Biomarker row ${index + 1}`} value={row.biomarker} onChange={(event) => updateReview(index, "biomarker", event.target.value)}><option value="">Unmapped / skip</option>{BIOMARKERS.map(([code, label]) => <option key={code} value={code}>{label}</option>)}</select><small>{candidate.name || candidate.canonical_biomarker || "Unresolved name"}</small>{candidate.confidence != null && <small>Extraction confidence: {Math.round(candidate.confidence * 100)}%</small>}{candidate.review_reasons?.length > 0 && <small className="row-warning">{candidate.review_reasons.join(", ")}</small>}</td><td><input aria-label={`Value row ${index + 1}`} inputMode="decimal" value={row.value} onChange={(event) => updateReview(index, "value", event.target.value)} /></td><td><input aria-label={`Unit row ${index + 1}`} value={row.unit} onChange={(event) => updateReview(index, "unit", event.target.value)} /></td><td><input aria-label={`Reference range row ${index + 1}`} value={row.reference_range} onChange={(event) => updateReview(index, "reference_range", event.target.value)} placeholder="Not supplied" /></td><td><small>{candidate.provenance?.page_number ? `Page ${candidate.provenance.page_number}` : "Page unavailable"}</small>{candidate.provenance?.extraction_method && <small>{candidate.provenance.extraction_method}</small>}</td><td><label className="confirm-box"><input type="checkbox" checked={row.confirmed} disabled={!row.biomarker || row.value === "" || !row.unit} onChange={(event) => updateReview(index, "confirmed", event.target.checked)} /><span>Checked</span></label></td></tr>; })}</tbody></table></div><div className="review-footer"><span>{review.filter((row) => row.confirmed).length} rows confirmed · {review.length} candidates</span><button className="button-primary" disabled={busy || !review.some((row) => row.confirmed)} onClick={analyzeReviewed}>{busy ? "Analyzing…" : "Analyze confirmed values →"}</button></div></section>}
+      {error && <p className="inline-error" role="alert">{error}</p>}<p className="disclaimer">Only rows you explicitly confirm are sent for analysis. Units must match NutriFix’s canonical schema; automatic unit conversion is unavailable.</p>
+    </main>}
+
+    {page === "results" && <main className="workspace wide"><button className="back-button" onClick={() => setPage("review")}>← Review values</button>{/synthetic/i.test(extraction?.filename || "") && <div className="synthetic-banner">SYNTHETIC DEMO DATA — NOT A REAL PATIENT REPORT</div>}<div className="page-heading"><p className="eyebrow">STEP 3 OF 3 · RESULTS</p><h1>Reviewed report overview</h1><p>Comparisons below use only the ranges you confirmed from your report.</p></div>
+      <section className="panel results-panel"><div className="result-summary"><div><span className="status-mark">✓</span><div><h2>Analysis complete</h2><p>{analysis.data_quality.user_confirmed_biomarkers} confirmed biomarker{analysis.data_quality.user_confirmed_biomarkers === 1 ? "" : "s"}</p></div></div><span className="status-tag">User reviewed</span></div><div className="result-table-wrap"><table className="result-table"><thead><tr><th>Biomarker</th><th>Result</th><th>Lab range</th><th>Comparison</th></tr></thead><tbody>{analysis.reference_range_comparisons.map((row) => <tr key={row.canonical_biomarker}><td>{row.name}</td><td>{row.value} {row.unit}</td><td>{row.reference_range || "Not supplied"}</td><td><span className={`range-status ${row.range_status}`}>{row.range_status.replaceAll("_", " ")}</span></td></tr>)}</tbody></table></div>
+        <section className="anomaly-card"><div><p className="eyebrow">EXPLORATORY MODEL COMPARISON</p><h3>Statistical outlier ranking</h3></div>{analysis.statistical_anomaly.status === "scored" ? <><p>These scores compare the complete profile with an NHANES reference cohort. They are not probabilities or diagnoses.</p><div className="model-score-list">{Object.entries(analysis.statistical_anomaly.models).map(([name, item]) => <div key={name}><span>{name.replaceAll("_", " ")}</span><strong>{item.anomaly_score.toPrecision(4)}</strong><small>{item.empirical_reference_percentile.toFixed(1)}th reference rank</small></div>)}</div></> : <p>{analysis.statistical_anomaly.message || analysis.statistical_anomaly.reason || "A model score is not available for this profile."} Scores are exploratory and are not diagnoses.</p>}</section>
+        <details className="limitations"><summary>Data quality and limitations</summary><ul>{analysis.limitations.map((item) => <li key={item}>{item}</li>)}</ul></details>
+      </section>
+        <section className="panel recommendations-panel"><p className="eyebrow">OPTIONAL · GENERAL NUTRITION EDUCATION</p><h2>Explore food guidance</h2><p>Guidance uses confirmed results with clear report ranges and your dietary preferences. It is not treatment.</p><div className="profile-grid"><label>Diet<select value={diet} onChange={(event) => setDiet(event.target.value)}><option value="vegan">Vegan</option><option value="vegetarian">Vegetarian</option><option value="non_vegetarian">Non-vegetarian</option></select></label><label>Goal<select value={goal} onChange={(event) => setGoal(event.target.value)}><option value="general">Overall nutrition</option><option value="weight_management">Weight management</option><option value="muscle_gain">Muscle gain</option><option value="focus_on_report">Focus on report findings</option></select></label><label>Budget<select value={budget} onChange={(event) => setBudget(event.target.value)}><option value="low">Budget-friendly</option><option value="moderate">Moderate</option><option value="flexible">Flexible</option></select></label><label>Food preferences<input value={preferences} onChange={(event) => setPreferences(event.target.value)} /></label><label className="span-two">Allergies (comma-separated)<input value={allergies} onChange={(event) => setAllergies(event.target.value)} placeholder="Leave blank if none" /></label><label>Age (optional)<input type="number" min="1" max="120" value={age} onChange={(event) => setAge(event.target.value)} placeholder="Years" /></label><label>Dietary guidance (optional)<input value={dietaryGuidance} onChange={(event) => setDietaryGuidance(event.target.value)} placeholder="Restrictions or clinician guidance" /></label></div>{diet === "vegetarian" && <label className="checkbox-line"><input type="checkbox" checked={allowEggs} onChange={(event) => setAllowEggs(event.target.checked)} /> I eat eggs</label>}
+        <button className="button-primary" disabled={busy || !analysis.reference_range_comparisons.some((row) => row.range_status !== "needs_review")} onClick={getRecommendations}>{busy ? "Preparing guidance…" : "Get food guidance →"}</button>
+        {error && <p className="inline-error" role="alert">{error}</p>}
+        {recommendations && <div className="guidance-result"><h3>{recommendations.summary || "Food guidance"}</h3>{(recommendations.recommendations || []).map((item, index) => <article key={`${item.finding}-${index}`}><h4>{item.finding} · {item.finding_status?.replaceAll("_", " ")}</h4><p>{item.why_it_matters}</p>{item.foods_to_consider?.length > 0 && <p><strong>Consider:</strong> {item.foods_to_consider.map((food) => food.food).join(", ")}</p>}{item.next_steps && <p>{item.next_steps}</p>}</article>)}{recommendations.safety_notes?.length > 0 && <p className="disclaimer">{recommendations.safety_notes.join(" ")}</p>}<details><summary>Limitations</summary><ul>{(recommendations.limitations || []).map((item) => <li key={item}>{item}</li>)}</ul></details></div>}
+      </section><section className="notice"><strong>Not a diagnosis</strong><p>An out-of-range result or statistical outlier is not a diagnosis. Discuss your report with a qualified health professional.</p></section><button className="button-secondary reset-button" onClick={reset}>Start a new report</button>
+    </main>}
+
+    <footer className="footer"><button className="brand" onClick={reset}><span className="brand-symbol">N</span><span>nutri<span>fix</span></span></button><p>Clearer information, with honest limits.</p><small>Research prototype · Not for diagnosis or treatment</small></footer>
+  </div>;
 }
-
-
 
 export default App;
