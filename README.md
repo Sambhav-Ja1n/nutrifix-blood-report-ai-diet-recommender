@@ -6,16 +6,16 @@ NutriFix is a research prototype for extracting a small set of values from suppo
 
 ## What is implemented
 
-- A FastAPI service with a health endpoint, limited selectable-text PDF extraction, basic pattern matching for a small set of biomarkers, and a structured food-guidance endpoint.
+- A FastAPI service with a health endpoint, local text/OCR extraction for PDF, JPEG, and PNG reports, conservative canonical-name matching for a small biomarker set, and a structured food-guidance endpoint.
 - A React/Vite interface for report upload and nutrition-guidance requests.
 - A separate Streamlit explorer for the NHANES cohort and the existing Isolation Forest outputs.
 - Scripts to verify downloaded files, merge NHANES 2017–2018 CBC, demographics, and ferritin data, audit data quality, prepare CBC features, and run an Isolation Forest baseline.
 - Exploratory anomaly explanations, participant reports, and sensitivity checks.
-- A held-out comparison script for Isolation Forest, novelty Local Outlier Factor, and regularized robust Mahalanobis distance. Its rankings are exploratory and have not been clinically validated.
+- A held-out comparison script for Isolation Forest, novelty Local Outlier Factor, regularized robust Mahalanobis distance, One-Class SVM, and a regularized autoencoder. Its rankings are exploratory and have not been clinically validated.
 
 ### OCR status
 
-OCR is **not implemented**. The API can extract selectable text from some PDFs and check a few known text patterns. Scanned PDFs and uploaded images receive a `needs_ocr` response; no image text is recognized. The parser is not a universal laboratory-report parser.
+The API uses local Tesseract OCR for scanned PDF pages and JPEG/PNG images, and PyMuPDF for PDF text and page rendering. It first extracts selectable PDF text, then OCRs low-text pages. Supported labels are matched conservatively against `schemas/canonical_biomarkers.json`; unknown or ambiguous numeric lines remain unresolved. Extracted values retain page/line provenance and OCR confidence, are marked unverified, and require human review. Units are not converted and clinical intervals are not invented. This is a prototype parser, not a universal laboratory-report parser. Tesseract 5 with English and orientation data must be installed on the host.
 
 ### Nutrition guidance status
 
@@ -34,7 +34,7 @@ flowchart TD
   D --> H[Held-out anomaly comparison]
   H --> I[Local comparison metrics]
   J[React/Vite upload interface] --> K[FastAPI]
-  K --> L[Selectable PDF text and limited pattern parsing]
+  K --> L[PDF text and local Tesseract OCR]
   K --> M[Gemini nutrition-education request]
 ```
 
@@ -61,12 +61,12 @@ NutriFix/
 ## Technology
 
 - Python 3.12, pandas, NumPy, scikit-learn, SciPy, and PyArrow
-- FastAPI, Pydantic, Uvicorn, pypdf, and Pillow
+- FastAPI, Pydantic, Uvicorn, PyMuPDF, Pillow, and system Tesseract OCR
 - Google Gen AI SDK with an optional Gemini API key
 - Streamlit for cohort exploration
 - React, Vite, and npm for the upload interface
 
-The Python versions in `requirements.txt` match the available project `mlenv` environment at checkpoint preparation. The frontend versions are locked in `frontend/package-lock.json`.
+The Python versions in `requirements.txt` match the available project `mlenv` environment at checkpoint preparation. OCR also requires the Tesseract executable and `eng`/`osd` language data; Python dependencies alone do not install it. The frontend versions are locked in `frontend/package-lock.json`.
 
 ## Garuda Linux / Linux setup
 
@@ -132,17 +132,17 @@ python scripts/compare_anomaly_models.py \
 
 ## Tests
 
-The comparison unit tests use Python's standard library test runner:
+The model-comparison, report-extraction, and API acceptance tests use Python's standard library test runner (OCR tests require local Tesseract):
 
 ```bash
 python -m unittest discover -s tests -v
 ```
 
-This command was verified in the project `mlenv` environment during checkpoint preparation. `scripts/test_pipeline_outputs.py` is a separate output-check script and requires the generated baseline prediction, explanation, and report files to be present.
+This command was verified in the project `mlenv` environment. `scripts/test_pipeline_outputs.py` is a separate output-check script and requires the generated baseline prediction, explanation, and report files to be present.
 
 ## Anomaly-detection limitations
 
-The original Isolation Forest baseline uses CBC measurements and missingness indicators. Its earlier cohort-level preprocessing fitted medians and scaling on the full cohort; its outputs are exploratory and are not a held-out clinical evaluation. The separate comparison script fits preprocessing and models on a fixed reference partition and scores a held-out partition, but one split does not establish generalization. Agreement, ranking stability, or a selected fraction of candidates is not evidence of diagnostic accuracy. No validated clinical labels are included.
+The original Isolation Forest baseline uses CBC measurements and missingness indicators. Its earlier cohort-level preprocessing fitted medians and scaling on the full cohort; its outputs are exploratory and are not a held-out clinical evaluation. The separate comparison script evaluates five methods on a seeded reference/test split and also compares preprocessing with and without missingness indicators. One split does not establish generalization. Agreement, ranking stability, or a selected fraction of candidates is not evidence of diagnostic accuracy. No validated clinical labels are included.
 
 The comparison does not implement clinical reference-range rules. The canonical schema provides biomarker names and units, but the repository does not provide sourced, population-applicable reference intervals. Such a baseline needs authoritative interval sources and relevant age, sex, pregnancy, assay, and specimen context before implementation.
 
@@ -156,7 +156,7 @@ The comparison does not implement clinical reference-range rules. The canonical 
 
 ## Roadmap
 
-- Add OCR only after selecting and evaluating an appropriate OCR workflow.
+- Expand and evaluate OCR/parser coverage on additional synthetic and appropriately deidentified report layouts.
 - Source and review clinically applicable reference intervals before adding a clinical-rules baseline.
 - Evaluate anomaly methods on appropriate labeled or clinician-reviewed data before making clinical claims.
 - Improve report-format coverage, privacy controls, and documented validation before any real-world clinical use.

@@ -1,6 +1,6 @@
 
 {
-  "schema_version": "1.1.0",
+  "schema_version": "1.2.0",
   "project": "NutriFix",
   "source": {
     "name": "NHANES",
@@ -172,5 +172,29 @@
       "alternate_source_unit": "ug/L",
       "alternate_is_separate_biomarker": false
     }
+  },
+  "normalization_aliases": {
+    "LBXWBCSI": ["WBC", "white blood cells", "white cell count", "leukocyte count"],
+    "LBXLYPCT": ["lymphocytes percent", "lymphocyte percent", "lymphocytes %", "lym %"],
+    "LBXMOPCT": ["monocytes percent", "monocyte percent", "monocytes %", "mono %"],
+    "LBXNEPCT": ["segmented neutrophils percent", "neutrophils percent", "neutrophil percent", "neutrophils %", "neut %"],
+    "LBXEOPCT": ["eosinophils percent", "eosinophil percent", "eosinophils %", "eos %"],
+    "LBXBAPCT": ["basophils percent", "basophil percent", "basophils %", "baso %"],
+    "LBDLYMNO": ["absolute lymphocytes", "absolute lymphocyte count", "lymphocytes absolute", "lymphocyte absolute count"],
+    "LBDMONO": ["absolute monocytes", "absolute monocyte count", "monocytes absolute", "monocyte absolute count"],
+    "LBDNENO": ["absolute neutrophils", "absolute segmented neutrophils", "absolute neutrophil count", "neutrophils absolute"],
+    "LBDEONO": ["absolute eosinophils", "absolute eosinophil count", "eosinophils absolute"],
+    "LBDBANO": ["absolute basophils", "absolute basophil count", "basophils absolute"],
+    "LBXRBCSI": ["RBC", "RBC count", "red blood cells", "red cell count", "erythrocyte count"],
+    "LBXHGB": ["Hb", "Hgb", "haemoglobin"],
+    "LBXHCT": ["Hct", "haematocrit", "packed cell volume", "PCV"],
+    "LBXMCVSI": ["MCV", "mean corpuscular volume"],
+    "LBXMCHSI": ["MCH", "mean corpuscular hemoglobin", "mean corpuscular haemoglobin"],
+    "LBXMC": ["MCHC", "mean corpuscular hemoglobin concentration", "mean corpuscular haemoglobin concentration"],
+    "LBXRDW": ["RDW", "red cell distribution width", "red blood cell distribution width"],
+    "LBXPLTSI": ["platelets", "platelet count", "PLT"],
+    "LBXMPSI": ["MPV", "mean platelet volume"],
+    "LBXNRBC": ["NRBC", "nucleated red blood cells", "nucleated red cell count"],
+    "LBXFER": ["serum ferritin", "ferritin level"]
   }
 }

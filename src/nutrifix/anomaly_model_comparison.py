@@ -20,9 +20,11 @@ import scipy
 import sklearn
 from sklearn.covariance import MinCovDet
 from sklearn.ensemble import IsolationForest
+from sklearn.neural_network import MLPRegressor
 from sklearn.model_selection import train_test_split
 from sklearn.neighbors import LocalOutlierFactor
 from sklearn.preprocessing import StandardScaler
+from sklearn.svm import OneClassSVM
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -53,6 +55,12 @@ TEST_SIZE = 0.25
 STABILITY_SEEDS = (43, 44)
 IF_N_ESTIMATORS = 300
 LOF_N_NEIGHBORS = 35
+OCSVM_NU = 0.05
+AE_ALPHA = 1e-3
+AE_MAX_ITER = 400
+AE_EARLY_STOPPING = True
+AE_TOL = 1e-3
+AE_N_ITER_NO_CHANGE = 10
 MCD_EIGENVALUE_FLOOR_RATIO = 1e-6
 MAX_REGULARIZED_CONDITION_NUMBER = 1e8
 
@@ -238,19 +246,75 @@ def fit_score_models(
             contamination="auto",
             n_jobs=1,
         ),
+        "one_class_svm": OneClassSVM(
+            kernel="rbf",
+            gamma="scale",
+            nu=OCSVM_NU,
+        ),
     }
     scores: dict[str, np.ndarray] = {}
     for name, model in models.items():
         model.fit(train_x)
-        # Both sklearn APIs return larger values for more inlier-like rows.
+        # scikit-learn score_samples returns larger values for more inlier-like rows.
         scores[name] = -np.asarray(model.score_samples(test_x), dtype=np.float64)
         _require_finite(f"{name} anomaly scores", scores[name])
+
+    # A one-hidden-layer MLP trained to reconstruct its own reference inputs
+    # provides a compact regularized autoencoder without a new deep-learning
+    # dependency. The held-out rows are only passed to predict().
+    latent_width = max(2, min(8, n_features // 2))
+    autoencoder = MLPRegressor(
+        hidden_layer_sizes=(latent_width,),
+        activation="relu",
+        solver="adam",
+        alpha=AE_ALPHA,
+        batch_size="auto",
+        learning_rate="constant",
+        learning_rate_init=1e-3,
+        max_iter=AE_MAX_ITER,
+        early_stopping=AE_EARLY_STOPPING,
+        validation_fraction=0.1,
+        n_iter_no_change=AE_N_ITER_NO_CHANGE,
+        random_state=random_seed,
+        shuffle=True,
+        tol=AE_TOL,
+    )
+    autoencoder.fit(train_x, train_x)
+    reconstructed = np.asarray(autoencoder.predict(test_x), dtype=np.float64)
+    if reconstructed.shape != test_x.shape:
+        raise RuntimeError("Autoencoder reconstruction has an unexpected shape")
+    scores["regularized_autoencoder"] = np.mean(
+        np.square(test_x - reconstructed), axis=1
+    )
+    _require_finite("regularized_autoencoder anomaly scores", scores["regularized_autoencoder"])
 
     mahalanobis_scores, covariance_details = robust_mahalanobis_scores(
         train_x, test_x, random_seed=random_seed
     )
     scores["robust_mahalanobis"] = mahalanobis_scores
-    return scores, covariance_details
+    fit_details = {
+        "robust_mahalanobis": covariance_details,
+        "regularized_autoencoder": {
+            "estimator": "one-hidden-layer MLPRegressor reconstruction autoencoder",
+            "hidden_layer_sizes": [latent_width],
+            "activation": "relu",
+            "solver": "adam",
+            "alpha_l2_regularization": AE_ALPHA,
+            "max_iter": AE_MAX_ITER,
+            "early_stopping": AE_EARLY_STOPPING,
+            "validation_fraction_from_reference_only": 0.1,
+            "n_iter_no_change": AE_N_ITER_NO_CHANGE,
+            "tolerance": AE_TOL,
+            "random_seed": random_seed,
+            "iterations_run": int(autoencoder.n_iter_),
+            "converged_before_iteration_limit": bool(autoencoder.n_iter_ < AE_MAX_ITER),
+            "reached_iteration_limit": bool(autoencoder.n_iter_ >= AE_MAX_ITER),
+            "best_validation_score": float(autoencoder.best_validation_score_),
+            "final_training_loss": float(autoencoder.loss_),
+            "score": "mean squared reconstruction error per held-out row; higher is more anomalous",
+        },
+    }
+    return scores, fit_details
 
 
 def robust_mahalanobis_scores(
@@ -439,7 +503,7 @@ def _stability_rows(split: PreparedSplit, include_missingness: bool) -> list[dic
     for seed in STABILITY_SEEDS:
         repeat_scores, _ = fit_score_models(train_x, test_x, seed)
         for model_name in primary_scores:
-            if model_name == "local_outlier_factor":
+            if model_name in {"local_outlier_factor", "one_class_svm"}:
                 continue  # Deterministic for a fixed split and parameters.
             for label, flags in top_k_selection(primary_scores[model_name])[0].items():
                 repeated_flags = top_k_selection(repeat_scores[model_name])[0][label]
@@ -509,7 +573,7 @@ def run_comparison(
 
     scores_by_variant = {}
     preprocessing_details = {}
-    covariance_details = {}
+    fit_details_by_variant = {}
     variant_models = {}
     for include in (False, True):
         variant = "with_missingness_indicators" if include else "without_missingness_indicators"
@@ -517,12 +581,12 @@ def run_comparison(
             split.raw_train, split.raw_test, split.missing_train, split.missing_test,
             include,
         )
-        scores, covariance = fit_score_models(train_x, test_x, random_seed)
+        scores, fit_details = fit_score_models(train_x, test_x, random_seed)
         if any(len(values) != len(split.ids_test) for values in scores.values()):
             raise RuntimeError(f"Models did not score identical held-out rows for {variant}")
         scores_by_variant[variant] = scores
         preprocessing_details[variant] = prep
-        covariance_details[variant] = covariance
+        fit_details_by_variant[variant] = fit_details
         variant_models[variant] = {
             "reference_model_input_shape": list(train_x.shape),
             "held_out_model_input_shape": list(test_x.shape),
@@ -594,9 +658,39 @@ def run_comparison(
                 "score": "negative score_samples; higher means more anomalous",
                 "random_seed": None,
             },
+            "one_class_svm": {
+                "kernel": "rbf",
+                "gamma": "scale",
+                "nu": OCSVM_NU,
+                "native_threshold": "not used for cross-model comparison",
+                "score": "negative score_samples; higher means more anomalous",
+                "random_seed": None,
+            },
             "robust_mahalanobis": {
-                **covariance_details,
+                "estimator": "Minimum Covariance Determinant (MinCovDet)",
+                "covariance_diagnostics_by_condition": {
+                    variant: details["robust_mahalanobis"]
+                    for variant, details in fit_details_by_variant.items()
+                },
                 "score": "regularized robust Mahalanobis distance; higher means more anomalous",
+            },
+            "regularized_autoencoder": {
+                "estimator": "one-hidden-layer sklearn MLPRegressor trained for input reconstruction",
+                "activation": "relu",
+                "solver": "adam",
+                "latent_width_rule": "max(2, min(8, input_feature_count // 2))",
+                "alpha_l2_regularization": AE_ALPHA,
+                "max_iter": AE_MAX_ITER,
+                "early_stopping": AE_EARLY_STOPPING,
+                "validation_fraction_from_reference_only": 0.1,
+                "tolerance": AE_TOL,
+                "n_iter_no_change": AE_N_ITER_NO_CHANGE,
+                "random_seed": random_seed,
+                "fit_diagnostics_by_condition": {
+                    variant: details["regularized_autoencoder"]
+                    for variant, details in fit_details_by_variant.items()
+                },
+                "score": "mean squared reconstruction error per held-out row; higher means more anomalous",
             },
         },
         "held_out_scoring": variant_models,

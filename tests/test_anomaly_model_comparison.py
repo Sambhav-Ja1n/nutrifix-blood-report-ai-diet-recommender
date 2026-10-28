@@ -66,7 +66,8 @@ class ComparisonTests(unittest.TestCase):
         self.assertEqual(len(split.ids_test), test_x.shape[0])
         self.assertTrue(all(len(score) == len(split.ids_test) for score in scores.values()))
         self.assertEqual(set(scores), {
-            "isolation_forest", "local_outlier_factor", "robust_mahalanobis"
+            "isolation_forest", "local_outlier_factor", "one_class_svm",
+            "regularized_autoencoder", "robust_mahalanobis",
         })
 
     def test_anomaly_score_direction_for_all_models(self):
@@ -117,7 +118,10 @@ class ComparisonTests(unittest.TestCase):
             self.assertFalse(metadata["participant_id_used_as_model_feature"])
             self.assertEqual(
                 set(first_scores["model"]),
-                {"isolation_forest", "local_outlier_factor", "robust_mahalanobis"},
+                {
+                    "isolation_forest", "local_outlier_factor", "one_class_svm",
+                    "regularized_autoencoder", "robust_mahalanobis",
+                },
             )
             for _, group in first_scores.groupby(["preprocessing", "model"]):
                 self.assertEqual(group[ID_COLUMN].nunique(), len(group))
