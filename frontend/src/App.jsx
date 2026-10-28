@@ -92,6 +92,7 @@ const readJsonResponse = async (response, fallbackMessage) => {
 function App() {
   const [page, setPage] = useState("home");
   const [theme, setTheme] = useState(() => localStorage.getItem("nutrifix-theme") || "light");
+  const [activeStory, setActiveStory] = useState(0);
   const [file, setFile] = useState(null);
   const [extraction, setExtraction] = useState(null);
   const [review, setReview] = useState([]);
@@ -249,8 +250,14 @@ function App() {
           <div className="float-chip"><span>✓</span> You stay in control</div>
         </div>
       </section>
+      <div className="signal-ticker" aria-label="NutriFix principles"><span>NO DIAGNOSIS</span><i>✦</i><span>HUMAN REVIEW FIRST</span><i>✦</i><span>REPORT-RANGE COMPARISONS</span><i>✦</i><span>GENERAL NUTRITION EDUCATION</span><i>✦</i><span>NO DIAGNOSIS</span></div>
       <section className="workflow-strip"><div><b>01</b><span><strong>Upload</strong><small>PDF, JPG, or PNG</small></span></div><i>→</i><div><b>02</b><span><strong>Review</strong><small>Correct and confirm</small></span></div><i>→</i><div><b>03</b><span><strong>Understand</strong><small>Explore your results</small></span></div></section>
+      <section className="story-section">
+        <div className="story-intro"><p className="eyebrow">A BETTER WAY TO READ A REPORT</p><h2>Less guessing.<br /><em>More context.</em></h2><p>NutriFix turns a dense report into a calm, reviewable conversation. Every step keeps you in control of what gets analyzed.</p><div className="story-tabs">{["Extract the signal", "Keep the context", "Choose your next step"].map((label, index) => <button key={label} className={activeStory === index ? "active" : ""} onClick={() => setActiveStory(index)}><span>0{index + 1}</span>{label}<b>↗</b></button>)}</div></div>
+        <div className={`story-canvas story-${activeStory}`}><div className="story-orbit" /><div className="story-stat"><small>STEP {activeStory + 1} / 3</small><strong>{["Signal, not noise.", "Your report sets the range.", "Small steps, clearly explained."][activeStory]}</strong></div><div className="story-card"><span className="story-card-kicker">{["EXTRACTED CANDIDATE", "LAB-SUPPLIED RANGE", "GENERAL GUIDANCE"][activeStory]}</span><strong>{["Hemoglobin", "White blood cell count", "Balanced plate"][activeStory]}</strong><div className="story-card-line"><span>{["13.8", "7.2", "↗"][activeStory]}</span><small>{["g/dL · review needed", "10³/uL · 4.0–11.0", "food education"][activeStory]}</small></div><div className="story-card-foot">{["Review each field before analysis", "Only use ranges printed on the report", "Never a diagnosis or treatment plan"][activeStory]}</div></div><span className="story-dot dot-one" /><span className="story-dot dot-two" /></div>
+      </section>
       <section className="method-section" id="methodology"><div><p className="eyebrow">THE NUTRIFIX APPROACH</p><h2>Built for clarity.<br /><em>Honest about limits.</em></h2><p>Extraction is a starting point, not a verified result. NutriFix keeps lab range comparisons, statistical outlier rankings, and nutrition guidance as separate pieces of information.</p></div><div className="method-cards"><article><span>01</span><h3>You review first</h3><p>Check every extracted biomarker, value, unit, and range before analysis.</p></article><article><span>02</span><h3>Your report sets the range</h3><p>Range comparisons use only the interval supplied with your report.</p></article><article><span>03</span><h3>Outliers are not diagnoses</h3><p>Exploratory model scores describe statistical similarity, not disease or risk.</p></article></div></section>
+      <section className="numbers-section"><div><strong>01</strong><span>Report in<br />your hands</span></div><div><strong>03</strong><span>Review steps<br />before insight</span></div><div><strong>∞</strong><span>Room for<br />better questions</span></div><p>Designed for careful exploration, not instant conclusions.</p></section>
       <section className="notice"><strong>Research prototype</strong><p>NutriFix is not a medical device and cannot diagnose, treat, or replace care from a qualified health professional. Do not use it for urgent decisions.</p></section>
     </main>}
 
