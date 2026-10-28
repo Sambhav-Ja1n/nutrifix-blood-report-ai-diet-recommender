@@ -58,6 +58,8 @@ The review and results screenshots use a clearly labeled synthetic PDF created f
 | Methodology | ![NutriFix methodology section](docs/screenshots/06-methodology.png) |
 | Mobile layout | ![NutriFix mobile landing layout](docs/screenshots/07-mobile-layout.png) |
 
+For the current implementation summary, cleanup record, test results, and limitations, see the [Project Status Report](docs/PROJECT_STATUS_REPORT.md). A presentation version is available as [NutriFix Project Status](docs/NutriFix_Project_Status.pptx).
+
 ## Repository layout
 
 ```text
