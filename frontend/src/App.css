@@ -59,4 +59,63 @@ html[data-theme="dark"] input,html[data-theme="dark"] select{background:#14211d;
 .numbers-section div{display:flex;align-items:center;gap:14px;border-right:1px solid var(--line)}.numbers-section strong{font:800 42px Manrope,sans-serif;color:var(--green);letter-spacing:-2px}.numbers-section span{font-size:12px;line-height:1.4;color:var(--muted)}.numbers-section p{justify-self:end;max-width:180px;color:var(--muted);font-size:12px;line-height:1.6}
 html[data-theme="dark"] .story-canvas{background:linear-gradient(135deg,#1d4133,#235244)}html[data-theme="dark"] .story-1{background:linear-gradient(135deg,#203b4b,#2a5365)}html[data-theme="dark"] .story-2{background:linear-gradient(135deg,#4b3822,#76582b)}html[data-theme="dark"] .story-stat{color:#b9e2c9}html[data-theme="dark"] .story-1 .story-stat{color:#c4dfef}html[data-theme="dark"] .story-2 .story-stat{color:#f3d9a2}html[data-theme="dark"] .story-card{border-color:#ffffff20}
 @media(max-width:760px){.signal-ticker{justify-content:flex-start;overflow:hidden}.story-section{width:calc(100% - 32px);grid-template-columns:1fr;gap:35px;margin-bottom:70px}.story-intro h2{font-size:38px}.story-canvas{min-height:350px}.numbers-section{width:calc(100% - 32px);grid-template-columns:1fr 1fr;gap:18px}.numbers-section div:nth-child(2){border-right:0}.numbers-section p{grid-column:1/-1;justify-self:start;margin:5px 0 0}}
+
+/* Fluid layout guards for laptop, tablet, and wide browser sizes */
+html,body,#root{width:100%;max-width:100%;overflow-x:hidden}
+.app-shell{overflow:hidden}
+.topbar,.hero-wrap,.workflow-strip,.story-section,.method-section,.numbers-section,.notice{width:min(1240px,calc(100% - clamp(32px,8vw,112px)))}
+.hero-wrap{grid-template-columns:minmax(0,1.04fr) minmax(0,.96fr);gap:clamp(28px,5vw,72px);min-height:clamp(390px,42vw,540px)}
+.hero-copy{min-width:0}.hero-copy h1{font-size:clamp(38px,4.6vw,68px);letter-spacing:clamp(-2px,-.2vw,-3.5px)}
+.hero-lede{font-size:clamp(14px,1.35vw,17px)}
+.hero-art{min-width:0;min-height:clamp(300px,32vw,460px)}
+.workflow-strip{padding-inline:clamp(18px,3vw,42px)}
+.story-section{grid-template-columns:minmax(260px,.78fr) minmax(0,1.22fr);gap:clamp(28px,6vw,88px)}
+.story-intro h2{font-size:clamp(36px,3.8vw,53px)}
+.story-canvas{min-height:clamp(350px,38vw,500px)}
+.story-orbit{width:min(480px,75vw);height:min(480px,75vw)}
+.numbers-section{grid-template-columns:repeat(3,minmax(0,1fr)) minmax(150px,1.35fr)}
+@media(max-width:980px){
+  .topbar{height:72px}
+  .topbar nav{gap:14px}
+  .hero-wrap{grid-template-columns:1fr 1fr;gap:28px}
+  .sample-card{width:min(390px,90%);padding:19px}
+  .method-section{grid-template-columns:1fr;gap:30px}
+  .method-cards{max-width:none}
+  .story-section{grid-template-columns:1fr;gap:34px}
+  .story-intro{max-width:680px}
+  .story-canvas{min-height:390px}
+}
+@media(max-width:680px){
+  .topbar{width:calc(100% - 28px);height:68px}
+  .topbar nav{gap:10px}
+  .topbar nav a,.topbar nav button:first-child{display:none}
+  .topbar nav .nav-action{padding:10px 12px;font-size:11px}
+  .hero-wrap{width:calc(100% - 28px);grid-template-columns:1fr;margin-top:22px;gap:28px}
+  .hero-copy h1{font-size:clamp(38px,12vw,52px)}
+  .hero-art{min-height:300px}
+  .workflow-strip{width:calc(100% - 28px);margin-bottom:58px}
+  .workflow-strip>i{display:none}
+  .workflow-strip>div{gap:8px}
+  .workflow-strip>div small{font-size:9px}
+  .story-section,.method-section,.numbers-section,.notice{width:calc(100% - 28px)}
+  .story-canvas{min-height:330px}
+  .story-card{width:min(310px,78%);padding:20px}
+  .story-stat{top:25px;left:25px}
+  .story-stat strong{font-size:20px}
+  .numbers-section{grid-template-columns:1fr 1fr;padding-block:22px}
+  .numbers-section div{border-right:0}
+  .numbers-section div:nth-child(3){grid-column:1/-1}
+  .numbers-section p{grid-column:1/-1}
+}
+@media(max-width:420px){
+  html,body,#root{min-width:0}
+  body{min-width:0}
+  .brand{font-size:18px}
+  .theme-toggle{padding:8px 10px}
+  .theme-toggle small{display:none}
+  .topbar nav .nav-action{max-width:118px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .sample-card{padding:16px}
+  .sample-row{padding:13px 0}
+  .signal-ticker{gap:14px;font-size:8px}
+}
 .synthetic-banner{position:sticky;top:8px;z-index:20;margin:17px 0;padding:11px 14px;border:1px solid #e1c88d;border-radius:8px;background:#fff7e4;color:#765a21;font-size:11px;font-weight:700;letter-spacing:.45px}
