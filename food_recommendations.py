@@ -72,7 +72,7 @@ def _client() -> genai.Client:
     return genai.Client(api_key=key)
 
 
-def generate_food_recommendations(request: FoodRecommendationRequest) -> dict:
+async def generate_food_recommendations(request: FoodRecommendationRequest) -> dict:
     # The API validates explicit user review, canonical identity, units, and
     # supplied-range status before this function is called.
     if any(marker.range_status == "needs_review" for marker in request.biomarkers):
@@ -82,7 +82,7 @@ def generate_food_recommendations(request: FoodRecommendationRequest) -> dict:
     data = request.model_dump()
     client = _client()
     try:
-        response = client.models.generate_content(
+        response = await client.aio.models.generate_content(
             model=GEMINI_MODEL,
             contents=(
                 "Generate food education recommendations based on this JSON. "
@@ -98,6 +98,11 @@ def generate_food_recommendations(request: FoodRecommendationRequest) -> dict:
     except Exception as exc:
         logger.exception("Gemini API call failed")
         raise RuntimeError("Gemini request failed") from exc
+    finally:
+        try:
+            await client.aio.aclose()
+        finally:
+            client.close()
 
     if not response.text:
         raise RuntimeError("Gemini returned an empty response")

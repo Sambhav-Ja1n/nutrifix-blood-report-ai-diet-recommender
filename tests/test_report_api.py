@@ -3,9 +3,9 @@ import unittest
 
 import httpx
 import pymupdf
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
-from api import app
+from api import ProcessingTimeoutError, _report_worker_environment, app
 from src.nutrifix.report_extraction import OCRUnavailableError
 
 
@@ -78,7 +78,11 @@ class ReportApiTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(analysis.json()["statistical_anomaly"]["status"], "not_evaluated")
 
-        with patch("api.generate_food_recommendations", return_value={"recommendations": []}):
+        with patch(
+            "api.generate_food_recommendations",
+            new_callable=AsyncMock,
+            return_value={"recommendations": []},
+        ):
             recommendations = await self.request(
                 "POST",
                 "/api/reports/recommendations",
@@ -95,6 +99,48 @@ class ReportApiTests(unittest.IsolatedAsyncioTestCase):
                 files={"file": ("synthetic.pdf", digital_pdf(), "application/pdf")},
             )
         self.assertEqual(response.status_code, 200)
+
+    async def test_full_report_text_is_opt_in_and_unrelated_identifiers_are_omitted(self):
+        default_response = await self.request(
+            "POST",
+            "/api/reports/extract",
+            files={"file": ("synthetic.pdf", digital_pdf(), "application/pdf")},
+        )
+        self.assertEqual(default_response.status_code, 200)
+        self.assertNotIn("Synthetic Person", default_response.text)
+        self.assertNotIn("TEST-0001", default_response.text)
+        self.assertNotIn("extracted_text", default_response.json())
+        self.assertNotIn("lines", default_response.json()["pages"][0])
+
+        audit_response = await self.request(
+            "POST",
+            "/api/reports/extract",
+            data={"include_source_text": "true"},
+            files={"file": ("synthetic.pdf", digital_pdf(), "application/pdf")},
+        )
+        self.assertEqual(audit_response.status_code, 200)
+        self.assertIn("Patient: Synthetic Person", audit_response.json()["extracted_text"])
+
+    async def test_full_report_text_is_opt_in_and_unrelated_identifiers_are_omitted(self):
+        default_response = await self.request(
+            "POST",
+            "/api/reports/extract",
+            files={"file": ("synthetic.pdf", digital_pdf(), "application/pdf")},
+        )
+        self.assertEqual(default_response.status_code, 200)
+        self.assertNotIn("Synthetic Person", default_response.text)
+        self.assertNotIn("TEST-0001", default_response.text)
+        self.assertNotIn("extracted_text", default_response.json())
+        self.assertNotIn("lines", default_response.json()["pages"][0])
+
+        audit_response = await self.request(
+            "POST",
+            "/api/reports/extract",
+            data={"include_source_text": "true"},
+            files={"file": ("synthetic.pdf", digital_pdf(), "application/pdf")},
+        )
+        self.assertEqual(audit_response.status_code, 200)
+        self.assertIn("Patient: Synthetic Person", audit_response.json()["extracted_text"])
 
     async def test_invalid_uploads_have_explicit_client_errors(self):
         unsupported = await self.request(
@@ -191,7 +237,11 @@ class ReportApiTests(unittest.IsolatedAsyncioTestCase):
                 "reviewed_by_user": True,
             }],
         }
-        with patch("api.generate_food_recommendations", return_value={"ok": True}) as mocked:
+        with patch(
+            "api.generate_food_recommendations",
+            new_callable=AsyncMock,
+            return_value={"ok": True},
+        ) as mocked:
             response = await self.request(
                 "POST", "/api/reports/recommendations", json=payload
             )
@@ -225,8 +275,33 @@ class ReportApiTests(unittest.IsolatedAsyncioTestCase):
             )
         self.assertEqual(response.status_code, 503)
 
+    async def test_report_worker_timeout_returns_gateway_timeout_without_details(self):
+        with patch(
+            "api._extract_report_isolated",
+            new_callable=AsyncMock,
+            side_effect=ProcessingTimeoutError("sensitive worker detail"),
+        ):
+            response = await self.request(
+                "POST",
+                "/api/reports/extract",
+                files={"file": ("report.pdf", digital_pdf(), "application/pdf")},
+            )
+        self.assertEqual(response.status_code, 504)
+        self.assertNotIn("sensitive worker detail", response.text)
+
+    async def test_extraction_worker_receives_no_application_credentials(self):
+        environment = _report_worker_environment()
+        self.assertIn("PATH", environment)
+        self.assertNotIn("GEMINI_API_KEY", environment)
+        self.assertNotIn("GOOGLE_API_KEY", environment)
+        self.assertNotIn("GH_TOKEN", environment)
+
     async def test_ocr_service_failure_returns_safe_retryable_error(self):
-        with patch("api.extract_report_content", side_effect=OCRUnavailableError("private detail")):
+        with patch(
+            "api._extract_report_isolated",
+            new_callable=AsyncMock,
+            side_effect=OCRUnavailableError("private detail"),
+        ):
             response = await self.request(
                 "POST",
                 "/api/reports/extract",

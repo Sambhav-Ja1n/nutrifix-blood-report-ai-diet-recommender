@@ -1,10 +1,11 @@
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
-from functools import partial
+import json
 import logging
+import os
+import sys
 from threading import BoundedSemaphore
 
-from fastapi import FastAPI, File, HTTPException, UploadFile, Body
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile, Body
 from fastapi.middleware.cors import CORSMiddleware
 
 from food_recommendations import (
@@ -13,10 +14,10 @@ from food_recommendations import (
 )
 from src.nutrifix.report_extraction import (
     MAX_UPLOAD_BYTES,
+    MAX_REPORT_OCR_SECONDS,
     OCRUnavailableError,
     ReportExtractionError,
     UnsupportedReportError,
-    extract_report as extract_report_content,
     parse_text,
 )
 from src.nutrifix.report_workflow import (
@@ -27,23 +28,83 @@ from src.nutrifix.report_workflow import (
 logger = logging.getLogger("nutrifix.api")
 _PROCESSING_WORKERS = 2
 _PROCESSING_SLOTS = BoundedSemaphore(_PROCESSING_WORKERS)
+_REPORT_WORKER_ENV_KEYS = {
+    "PATH",
+    "LD_LIBRARY_PATH",
+    "TESSDATA_PREFIX",
+    "LANG",
+    "LC_ALL",
+    "LC_CTYPE",
+    "PYTHONPATH",
+    "PYTHONHOME",
+}
 
 
 class ProcessingBusyError(RuntimeError):
     """All bounded local processing slots are currently occupied."""
 
 
-async def _run_bounded(func, *args):
+class ProcessingTimeoutError(RuntimeError):
+    """A bounded report worker exceeded its total wall-clock allowance."""
+
+
+def _report_worker_environment() -> dict[str, str]:
+    """Pass only runtime and OCR configuration, never application credentials."""
+    return {
+        name: value
+        for name, value in os.environ.items()
+        if name in _REPORT_WORKER_ENV_KEYS
+    }
+
+
+async def _extract_report_isolated(content: bytes, content_type: str) -> dict:
     if not _PROCESSING_SLOTS.acquire(blocking=False):
         raise ProcessingBusyError("Local processing capacity is currently full")
+    process = None
     try:
-        loop = asyncio.get_running_loop()
-        with ThreadPoolExecutor(
-            max_workers=1,
-            thread_name_prefix="nutrifix-processing",
-        ) as executor:
-            return await loop.run_in_executor(executor, partial(func, *args))
+        process = await asyncio.create_subprocess_exec(
+            sys.executable,
+            "-m",
+            "src.nutrifix.report_worker",
+            content_type,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=_report_worker_environment(),
+        )
+        try:
+            stdout, _stderr = await asyncio.wait_for(
+                process.communicate(content),
+                timeout=MAX_REPORT_OCR_SECONDS + 10,
+            )
+        except asyncio.TimeoutError as exc:
+            process.kill()
+            await process.communicate()
+            raise ProcessingTimeoutError("Report processing exceeded its time limit.") from exc
+        except asyncio.CancelledError:
+            process.kill()
+            await process.communicate()
+            raise
+
+        try:
+            payload = json.loads(stdout)
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            raise ReportExtractionError("The report processor returned invalid output.") from exc
+        status_code = payload.get("status_code")
+        if status_code == 200 and isinstance(payload.get("result"), dict):
+            return payload["result"]
+        detail = payload.get("detail", "Could not process this report.")
+        if status_code == 503:
+            raise OCRUnavailableError(detail)
+        if status_code == 400:
+            raise ReportExtractionError(detail)
+        raise ReportExtractionError("The report processor failed safely.")
+    except FileNotFoundError as exc:
+        raise ReportExtractionError("The local Python report worker could not start.") from exc
     finally:
+        if process is not None and process.returncode is None:
+            process.kill()
+            await process.communicate()
         _PROCESSING_SLOTS.release()
 
 app = FastAPI(
@@ -77,7 +138,10 @@ async def health_check():
 
 
 @app.post("/api/reports/extract")
-async def extract_report(file: UploadFile = File(...)):
+async def extract_report(
+    file: UploadFile = File(...),
+    include_source_text: bool = Form(default=False),
+):
     """Extract selectable PDF text or use local Tesseract for scans/images."""
     if file.content_type not in ALLOWED_TYPES:
         await file.close()
@@ -94,13 +158,25 @@ async def extract_report(file: UploadFile = File(...)):
         raise HTTPException(status_code=413, detail="File exceeds the 15 MB limit.")
 
     try:
-        result = await _run_bounded(extract_report_content, content, content_type)
+        result = await _extract_report_isolated(content, content_type)
         result["filename"] = filename
+        if not include_source_text:
+            result.pop("extracted_text", None)
+            for page in result.get("pages", []):
+                page.pop("text", None)
+                page.pop("lines", None)
+            for line in result.get("unresolved_numeric_lines", []):
+                line.pop("text", None)
         return result
     except ProcessingBusyError as exc:
         raise HTTPException(
             status_code=503,
             detail="Local report processing is busy. Try again shortly.",
+        ) from exc
+    except ProcessingTimeoutError as exc:
+        raise HTTPException(
+            status_code=504,
+            detail="Report processing exceeded its time limit. Try a smaller report.",
         ) from exc
     except UnsupportedReportError as exc:
         raise HTTPException(status_code=415, detail=str(exc)) from exc
@@ -123,7 +199,7 @@ async def report_food_recommendations(request: FoodRecommendationRequest = Body(
                 status_code=422,
                 detail="Recommendations require a user-confirmed value, canonical unit, and usable report range.",
             )
-        data = await _run_bounded(generate_food_recommendations, request)
+        data = await generate_food_recommendations(request)
         return {
             "status": "success",
             "message": "Food guidance generated. Review the limitations and safety notes.",
@@ -131,11 +207,6 @@ async def report_food_recommendations(request: FoodRecommendationRequest = Body(
         }
     except HTTPException:
         raise
-    except ProcessingBusyError as exc:
-        raise HTTPException(
-            status_code=503,
-            detail="Local service capacity is currently full. Try again shortly.",
-        ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except RuntimeError as exc:

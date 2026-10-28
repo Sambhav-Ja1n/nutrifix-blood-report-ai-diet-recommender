@@ -154,7 +154,7 @@ The model-comparison, report-extraction, and API workflow tests use Python's sta
 python -m unittest discover -s tests -v
 ```
 
-Last verified on 2026-10-28 in `mlenv`: 31 tests passed. The integration test exercises synthetic upload → extraction → explicit review → supplied-range analysis → mocked recommendation generation. It does not call Gemini or establish clinical or OCR accuracy. `scripts/test_pipeline_outputs.py` is a separate output-check script and requires the generated baseline prediction, explanation, and report files to be present.
+Last verified on 2026-10-28 in `mlenv`: 37 tests passed. The integration test exercises synthetic upload → extraction → explicit review → supplied-range analysis → mocked recommendation generation. Recommendation response tests also use a fake SDK client; they do not call Gemini. These tests do not establish clinical or OCR accuracy. `scripts/test_pipeline_outputs.py` is a separate output-check script and requires the generated baseline prediction, explanation, and report files to be present.
 
 ## Anomaly-detection limitations
 
@@ -168,7 +168,7 @@ The report API compares values only with intervals supplied by the user from the
 - NHANES is public-use survey data, but local merged data and reports contain participant-level biomarker and demographic fields and should remain local unless deliberately reviewed.
 - The API reads uploaded content into memory for processing. If the recommendations endpoint is called, the supplied structured biomarkers and preferences are sent to Google's Gemini API; review the provider's terms and your privacy obligations before using real reports.
 - Treat extracted values and supplied ranges as unverified inputs. The API's parser supports only a narrow set of text patterns and does not validate clinical correctness.
-- The API has no user accounts, report persistence, or access-control layer. Run it locally only. Extraction responses include extracted text for review/audit; do not expose the service publicly or send real reports until access control and privacy handling are designed.
+- The API has no user accounts, report persistence, or access-control layer. Run it locally only. Full extracted text, page lines, and unresolved source lines are omitted from responses by default; `include_source_text=true` explicitly opts into returning them for audit. Candidate biomarker rows retain field-level source snippets. Do not expose the service publicly or send real reports until access control and privacy handling are designed.
 - Analysis and recommendation requests require `reviewed_by_user: true` for each marker. This is an explicit client confirmation signal, not proof that a person independently verified the value. The frontend review/correction step remains to be implemented.
 - Report-level statistical anomaly scoring is explicitly returned as `not_evaluated`. The current five-model experiment compares NHANES cohort rankings and is not a deployed patient-scoring model.
 - NutriFix is a research prototype. It is not a substitute for a clinician, laboratory, or validated medical device. Do not use it for diagnosis, treatment, or urgent-care decisions.
