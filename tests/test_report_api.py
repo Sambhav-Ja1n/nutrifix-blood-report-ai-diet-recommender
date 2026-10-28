@@ -281,6 +281,25 @@ class ReportApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(unreviewed.status_code, 422)
         self.assertEqual(unsupported_unit.status_code, 422)
 
+    async def test_common_count_unit_notation_is_accepted(self):
+        response = await self.request(
+            "POST",
+            "/api/reports/analyze",
+            json={"biomarkers": [{
+                "canonical_biomarker": "LBXWBCSI",
+                "name": "White Blood Cell Count",
+                "value": 7.2,
+                "unit": "10^3/uL",
+                "reference_range": "4.0 - 11.0",
+                "reviewed_by_user": True,
+            }]},
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(
+            response.json()["reference_range_comparisons"][0]["range_status"],
+            "within_supplied_range",
+        )
+
     async def test_recommendations_require_a_usable_reviewed_range_and_recompute_status(self):
         payload = {
             "diet": "vegetarian",

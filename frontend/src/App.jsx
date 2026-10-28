@@ -51,6 +51,17 @@ const errorMessage = (cause, fallback) => {
   return fallback;
 };
 
+const formatApiDetail = (detail, fallback) => {
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    const messages = detail
+      .map((item) => (typeof item?.msg === "string" ? item.msg : null))
+      .filter(Boolean);
+    if (messages.length) return messages.join(" ");
+  }
+  return errorMessage(detail, fallback);
+};
+
 const readJsonResponse = async (response, fallbackMessage) => {
   const body = await response.text();
   if (!body.trim()) {
@@ -73,7 +84,7 @@ const readJsonResponse = async (response, fallbackMessage) => {
   }
 
   if (!response.ok) {
-    throw new Error(data.detail || fallbackMessage);
+    throw new Error(formatApiDetail(data.detail, fallbackMessage));
   }
   return data;
 };

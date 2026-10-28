@@ -41,7 +41,8 @@ def _load_biomarker_definitions() -> dict[str, dict]:
 
 
 def _unit_key(value: str) -> str:
-    return re.sub(r"\s+", "", value).casefold().replace("µ", "u").replace("μ", "u")
+    normalized = re.sub(r"\s+", "", value).casefold().replace("µ", "u").replace("μ", "u")
+    return re.sub(r"(?<=\d)cells(?=/|$)", "", normalized)
 
 
 class ReviewedBiomarker(BaseModel):
