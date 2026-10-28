@@ -1,4 +1,8 @@
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 import logging
+from threading import BoundedSemaphore
 
 from fastapi import FastAPI, File, HTTPException, UploadFile, Body
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,8 +19,32 @@ from src.nutrifix.report_extraction import (
     extract_report as extract_report_content,
     parse_text,
 )
+from src.nutrifix.report_workflow import (
+    ReviewedReportRequest,
+    analyze_reviewed_report,
+)
 
 logger = logging.getLogger("nutrifix.api")
+_PROCESSING_WORKERS = 2
+_PROCESSING_SLOTS = BoundedSemaphore(_PROCESSING_WORKERS)
+
+
+class ProcessingBusyError(RuntimeError):
+    """All bounded local processing slots are currently occupied."""
+
+
+async def _run_bounded(func, *args):
+    if not _PROCESSING_SLOTS.acquire(blocking=False):
+        raise ProcessingBusyError("Local processing capacity is currently full")
+    try:
+        loop = asyncio.get_running_loop()
+        with ThreadPoolExecutor(
+            max_workers=1,
+            thread_name_prefix="nutrifix-processing",
+        ) as executor:
+            return await loop.run_in_executor(executor, partial(func, *args))
+    finally:
+        _PROCESSING_SLOTS.release()
 
 app = FastAPI(
     title="NutriFix API",
@@ -66,11 +94,14 @@ async def extract_report(file: UploadFile = File(...)):
         raise HTTPException(status_code=413, detail="File exceeds the 15 MB limit.")
 
     try:
-        # Keep the existing single-process prototype's extraction path
-        # synchronous. The local OCR work is page/time bounded below.
-        result = extract_report_content(content, content_type)
+        result = await _run_bounded(extract_report_content, content, content_type)
         result["filename"] = filename
         return result
+    except ProcessingBusyError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Local report processing is busy. Try again shortly.",
+        ) from exc
     except UnsupportedReportError as exc:
         raise HTTPException(status_code=415, detail=str(exc)) from exc
     except ReportExtractionError as exc:
@@ -84,15 +115,27 @@ async def extract_report(file: UploadFile = File(...)):
 
 
 @app.post("/api/reports/recommendations")
-def report_food_recommendations(request: FoodRecommendationRequest = Body(...)):
-    """Generate AI-assisted food education for the supplied structured markers."""
+async def report_food_recommendations(request: FoodRecommendationRequest = Body(...)):
+    """Generate guidance only from explicitly reviewed, validated report values."""
     try:
-        data = generate_food_recommendations(request)
+        if any(marker.range_status == "needs_review" for marker in request.biomarkers):
+            raise HTTPException(
+                status_code=422,
+                detail="Recommendations require a user-confirmed value, canonical unit, and usable report range.",
+            )
+        data = await _run_bounded(generate_food_recommendations, request)
         return {
             "status": "success",
             "message": "Food guidance generated. Review the limitations and safety notes.",
             "data": data,
         }
+    except HTTPException:
+        raise
+    except ProcessingBusyError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Local service capacity is currently full. Try again shortly.",
+        ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except RuntimeError as exc:
@@ -101,3 +144,16 @@ def report_food_recommendations(request: FoodRecommendationRequest = Body(...)):
     except Exception as exc:
         logger.exception("Food recommendation request failed")
         raise HTTPException(status_code=502, detail="Food recommendations could not be generated. Please try again later.") from exc
+
+
+@app.post("/api/reports/analyze")
+async def analyze_report(request: ReviewedReportRequest = Body(...)):
+    """Compare user-confirmed values with only the ranges supplied in the report."""
+    try:
+        return analyze_reviewed_report(request)
+    except Exception as exc:
+        logger.exception("Reviewed report analysis failed")
+        raise HTTPException(
+            status_code=400,
+            detail="The reviewed report could not be analyzed.",
+        ) from exc

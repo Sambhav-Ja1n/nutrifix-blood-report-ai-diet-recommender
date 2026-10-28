@@ -6,7 +6,7 @@ NutriFix is a research prototype for extracting a small set of values from suppo
 
 ## What is implemented
 
-- A FastAPI service with a health endpoint, local text/OCR extraction for PDF, JPEG, and PNG reports, conservative canonical-name matching for a small biomarker set, and a structured food-guidance endpoint.
+- A FastAPI service with local text/OCR extraction, a strict user-confirmed report-analysis contract, report-supplied interval comparisons, and a guarded AI nutrition-education endpoint.
 - A React/Vite interface for report upload and nutrition-guidance requests.
 - A separate Streamlit explorer for the NHANES cohort and the existing Isolation Forest outputs.
 - Scripts to verify downloaded files, merge NHANES 2017–2018 CBC, demographics, and ferritin data, audit data quality, prepare CBC features, and run an Isolation Forest baseline.
@@ -15,7 +15,7 @@ NutriFix is a research prototype for extracting a small set of values from suppo
 
 ### OCR status
 
-The API uses local Tesseract OCR for scanned PDF pages and JPEG/PNG images, and PyMuPDF for PDF text and page rendering. It first extracts selectable PDF text, then OCRs low-text pages. Supported labels are matched conservatively against `schemas/canonical_biomarkers.json`; unknown or ambiguous numeric lines remain unresolved. Extracted values retain page/line provenance and OCR confidence, are marked unverified, and require human review. Units are not converted and clinical intervals are not invented. This is a prototype parser, not a universal laboratory-report parser. Tesseract 5 with English and orientation data must be installed on the host.
+The API uses local Tesseract OCR for scanned PDF pages and JPEG/PNG images, and PyMuPDF for PDF text and page rendering. It first extracts selectable PDF text, then OCRs low-text pages. Uploads are limited to 15 MB and 100 PDF pages; at most 30 pages are OCRed, with 30-second per-call and 120-second total OCR limits. Two local processing slots are available; excess work receives a retryable response. Supported labels are matched conservatively against `schemas/canonical_biomarkers.json`; unknown or ambiguous numeric lines remain unresolved. Extracted values retain page/line provenance and OCR confidence, are marked unverified, and require human review. Units are not converted and clinical intervals are not invented. This is a prototype parser, not a universal laboratory-report parser. Tesseract 5 with English and orientation data must be installed on the host.
 
 ### Nutrition guidance status
 
@@ -35,10 +35,14 @@ flowchart TD
   H --> I[Local comparison metrics]
   J[React/Vite upload interface] --> K[FastAPI]
   K --> L[PDF text and local Tesseract OCR]
-  K --> M[Gemini nutrition-education request]
+  L --> R[Unverified extraction candidates]
+  R --> S[User confirmation and canonical/unit validation]
+  S --> T[Report-supplied range comparison and explanation]
+  T --> U[Statistical anomaly status: not evaluated for reports]
+  S --> M[Guarded Gemini nutrition-education request]
 ```
 
-The API/UI path and the NHANES cohort-analysis path are separate. The comparison script reads the merged local dataset directly and writes its outputs under `outputs/metrics/`; it does not replace the production API or frontend.
+The API/UI path and the NHANES cohort-analysis path are separate. The comparison script reads the merged local dataset directly and writes its outputs under `outputs/metrics/`; it does not replace the report API. The backend requires an explicit user-confirmed marker and canonical unit before report analysis or recommendations. Its report-analysis endpoint only compares values with ranges supplied in that report. It does not yet deploy a statistical model for individual reports, and the frontend has not yet been updated with the review step.
 
 ## Repository layout
 
@@ -70,15 +74,27 @@ The Python versions in `requirements.txt` match the available project `mlenv` en
 
 ## Garuda Linux / Linux setup
 
-Create a Python 3.12 virtual environment and install the recorded dependencies:
+For the existing Garuda development environment:
 
 ```bash
-python3.12 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
+conda activate mlenv
+```
+
+For a fresh environment:
+
+```bash
+conda create -n nutrifix python=3.12
+conda activate nutrifix
+```
+
+Then install the pinned Python dependencies:
+
+```bash
 python -m pip install -r requirements.txt
 cp .env.example .env
 ```
+
+Install the system Tesseract package and its English/orientation data with Garuda's package manager before using scanned reports. No Python package installs Tesseract.
 
 Set `GEMINI_API_KEY` in `.env` only if you intend to call the recommendation endpoint. Never commit `.env`. The API defaults to the model name configured in `GEMINI_MODEL` or `gemini-2.5-flash`.
 
@@ -132,19 +148,19 @@ python scripts/compare_anomaly_models.py \
 
 ## Tests
 
-The model-comparison, report-extraction, and API acceptance tests use Python's standard library test runner (OCR tests require local Tesseract):
+The model-comparison, report-extraction, and API workflow tests use Python's standard library test runner (OCR tests require local Tesseract):
 
 ```bash
 python -m unittest discover -s tests -v
 ```
 
-This command was verified in the project `mlenv` environment. `scripts/test_pipeline_outputs.py` is a separate output-check script and requires the generated baseline prediction, explanation, and report files to be present.
+Last verified on 2026-10-28 in `mlenv`: 31 tests passed. The integration test exercises synthetic upload → extraction → explicit review → supplied-range analysis → mocked recommendation generation. It does not call Gemini or establish clinical or OCR accuracy. `scripts/test_pipeline_outputs.py` is a separate output-check script and requires the generated baseline prediction, explanation, and report files to be present.
 
 ## Anomaly-detection limitations
 
 The original Isolation Forest baseline uses CBC measurements and missingness indicators. Its earlier cohort-level preprocessing fitted medians and scaling on the full cohort; its outputs are exploratory and are not a held-out clinical evaluation. The separate comparison script evaluates five methods on a seeded reference/test split and also compares preprocessing with and without missingness indicators. One split does not establish generalization. Agreement, ranking stability, or a selected fraction of candidates is not evidence of diagnostic accuracy. No validated clinical labels are included.
 
-The comparison does not implement clinical reference-range rules. The canonical schema provides biomarker names and units, but the repository does not provide sourced, population-applicable reference intervals. Such a baseline needs authoritative interval sources and relevant age, sex, pregnancy, assay, and specimen context before implementation.
+The report API compares values only with intervals supplied by the user from their report; it does not provide clinical reference-range rules. The canonical schema provides biomarker names and units, but the repository does not provide sourced, population-applicable reference intervals. Such a baseline needs authoritative interval sources and relevant age, sex, pregnancy, assay, and specimen context before implementation.
 
 ## Privacy and safe use
 
@@ -152,11 +168,15 @@ The comparison does not implement clinical reference-range rules. The canonical 
 - NHANES is public-use survey data, but local merged data and reports contain participant-level biomarker and demographic fields and should remain local unless deliberately reviewed.
 - The API reads uploaded content into memory for processing. If the recommendations endpoint is called, the supplied structured biomarkers and preferences are sent to Google's Gemini API; review the provider's terms and your privacy obligations before using real reports.
 - Treat extracted values and supplied ranges as unverified inputs. The API's parser supports only a narrow set of text patterns and does not validate clinical correctness.
+- The API has no user accounts, report persistence, or access-control layer. Run it locally only. Extraction responses include extracted text for review/audit; do not expose the service publicly or send real reports until access control and privacy handling are designed.
+- Analysis and recommendation requests require `reviewed_by_user: true` for each marker. This is an explicit client confirmation signal, not proof that a person independently verified the value. The frontend review/correction step remains to be implemented.
+- Report-level statistical anomaly scoring is explicitly returned as `not_evaluated`. The current five-model experiment compares NHANES cohort rankings and is not a deployed patient-scoring model.
 - NutriFix is a research prototype. It is not a substitute for a clinician, laboratory, or validated medical device. Do not use it for diagnosis, treatment, or urgent-care decisions.
 
 ## Roadmap
 
-- Expand and evaluate OCR/parser coverage on additional synthetic and appropriately deidentified report layouts.
+- Add the frontend review/correction step and connect it to the reviewed report-analysis contract after backend acceptance testing.
+- Expand and evaluate OCR/parser coverage on a manually verified, appropriately deidentified corpus before reporting accuracy metrics.
 - Source and review clinically applicable reference intervals before adding a clinical-rules baseline.
 - Evaluate anomaly methods on appropriate labeled or clinician-reviewed data before making clinical claims.
 - Improve report-format coverage, privacy controls, and documented validation before any real-world clinical use.

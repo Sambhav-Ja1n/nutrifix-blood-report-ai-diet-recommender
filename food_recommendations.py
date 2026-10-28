@@ -6,31 +6,22 @@ from typing import Literal
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
-from pydantic import BaseModel, Field
+from pydantic import ConfigDict, Field
+
+from src.nutrifix.report_workflow import ReviewedBiomarker, ReviewedReportRequest
 
 load_dotenv()
 logger = logging.getLogger("nutrifix.food_recommendations")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
 
-class BiomarkerInput(BaseModel):
-    name: str = Field(min_length=1, max_length=100)
-    value: float
-    unit: str = Field(min_length=1, max_length=40)
-    reference_range: str = Field(max_length=100)
-    range_status: Literal[
-        "within_supplied_range",
-        "below_supplied_range",
-        "above_supplied_range",
-        "below_supplied_threshold",
-        "at_or_above_supplied_threshold",
-        "needs_review",
-    ]
+BiomarkerInput = ReviewedBiomarker
 
 
-class FoodRecommendationRequest(BaseModel):
+class FoodRecommendationRequest(ReviewedReportRequest):
+    model_config = ConfigDict(extra="forbid")
+
     diet: Literal["vegan", "vegetarian", "non_vegetarian"]
-    biomarkers: list[BiomarkerInput] = Field(min_length=1, max_length=50)
     allergies: list[str] = Field(default_factory=list, max_length=30)
     food_preferences: list[str] = Field(default_factory=list, max_length=30)
     allow_eggs: bool = False
@@ -82,7 +73,12 @@ def _client() -> genai.Client:
 
 
 def generate_food_recommendations(request: FoodRecommendationRequest) -> dict:
-    # The endpoint should only receive extracted, structured biomarker values.
+    # The API validates explicit user review, canonical identity, units, and
+    # supplied-range status before this function is called.
+    if any(marker.range_status == "needs_review" for marker in request.biomarkers):
+        raise ValueError(
+            "Recommendations require a user-confirmed value, canonical unit, and usable report range."
+        )
     data = request.model_dump()
     client = _client()
     try:

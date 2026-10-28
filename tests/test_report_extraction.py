@@ -2,7 +2,9 @@ from io import BytesIO
 import json
 from pathlib import Path
 import shutil
+import subprocess
 import unittest
+from unittest.mock import patch
 
 import pymupdf
 from PIL import Image, ImageDraw, ImageFont
@@ -92,6 +94,17 @@ class ReportExtractionTests(unittest.TestCase):
         )
 
     @unittest.skipUnless(OCR_AVAILABLE, "Tesseract and a readable test font are required")
+    def test_tesseract_timeout_is_reported(self):
+        with patch(
+            "src.nutrifix.report_extraction.subprocess.run",
+            side_effect=subprocess.TimeoutExpired("tesseract", timeout=1),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "processing limit"):
+                extract_report(
+                    make_scan("Hemoglobin 13.5 g/dL 12.0 - 15.5"), "image/png"
+                )
+
+    @unittest.skipUnless(OCR_AVAILABLE, "Tesseract and a readable test font are required")
     def test_png_and_jpeg_images_are_supported(self):
         for image_format, media_type in [("PNG", "image/png"), ("JPEG", "image/jpeg")]:
             with self.subTest(image_format=image_format):
@@ -167,6 +180,32 @@ class ReportExtractionTests(unittest.TestCase):
             extract_report(b"data", "application/octet-stream")
         with self.assertRaises(ReportExtractionError):
             extract_report(b"not an image", "image/png")
+        jpeg_stream = BytesIO()
+        Image.new("RGB", (200, 120), "white").save(jpeg_stream, format="JPEG")
+        with self.assertRaisesRegex(ReportExtractionError, "does not match"):
+            extract_report(jpeg_stream.getvalue(), "image/png")
+
+    def test_pdf_page_and_render_limits_are_checked_before_ocr(self):
+        document = pymupdf.open()
+        for _ in range(101):
+            document.new_page()
+        too_many_pages = document.tobytes()
+        document.close()
+        with self.assertRaisesRegex(ReportExtractionError, "100-page limit"):
+            extract_report(too_many_pages, "application/pdf")
+
+        document = pymupdf.open()
+        document.new_page(width=3000, height=3000)
+        oversized_page = document.tobytes()
+        document.close()
+        with self.assertRaisesRegex(ReportExtractionError, "pixel processing limit"):
+            extract_report(oversized_page, "application/pdf")
+
+    def test_negative_numeric_text_is_preserved_without_clinical_claim(self):
+        rows = parse_text("Hemoglobin -1.2 g/dL -3.0 - 3.0")
+        self.assertEqual(rows[0]["value"], -1.2)
+        self.assertEqual(rows[0]["range_status"], "within_supplied_range")
+        self.assertTrue(rows[0]["review_required"])
 
 
 if __name__ == "__main__":

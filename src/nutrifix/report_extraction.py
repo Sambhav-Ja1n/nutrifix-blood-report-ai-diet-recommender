@@ -14,6 +14,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import time
 import unicodedata
 
 import pymupdf
@@ -27,6 +28,7 @@ MAX_PDF_PAGES = 100
 MAX_OCR_PAGES = 30
 MAX_IMAGE_PIXELS = 30_000_000
 OCR_TIMEOUT_SECONDS = 30
+MAX_REPORT_OCR_SECONDS = 120
 MIN_SELECTABLE_TEXT_CHARACTERS = 12
 LOW_OCR_CONFIDENCE = 70.0
 LEGACY_UNCANONICAL_LABELS = {"fasting glucose", "total cholesterol"}
@@ -34,7 +36,7 @@ LEGACY_UNCANONICAL_LABELS = {"fasting glucose", "total cholesterol"}
 NUMBER_RE = re.compile(r"(?<![A-Za-z0-9])([<>≤≥]=?\s*)?(-?\d+(?:[.,]\d+)?)(?![A-Za-z])")
 REFERENCE_RE = re.compile(
     r"(?<![A-Za-z0-9])(?P<range>(?:<=|>=|<|>|≤|≥)?\s*"
-    r"\d+(?:\.\d+)?(?:\s*(?:-|–|—|to)\s*\d+(?:\.\d+)?)?)\s*$",
+    r"-?\d+(?:\.\d+)?(?:\s*(?:-|–|—|to)\s*-?\d+(?:\.\d+)?)?)\s*$",
     flags=re.IGNORECASE,
 )
 
@@ -96,14 +98,19 @@ def _tesseract_binary() -> str:
     return executable
 
 
-def _tesseract_call(executable: str, image_bytes: bytes, *args: str) -> subprocess.CompletedProcess:
+def _tesseract_call(
+    executable: str,
+    image_bytes: bytes,
+    *args: str,
+    timeout: float = OCR_TIMEOUT_SECONDS,
+) -> subprocess.CompletedProcess:
     try:
         return subprocess.run(
             [executable, "stdin", "stdout", *args],
             input=image_bytes,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            timeout=OCR_TIMEOUT_SECONDS,
+            timeout=timeout,
             check=False,
         )
     except subprocess.TimeoutExpired as exc:
@@ -118,15 +125,36 @@ def _image_bytes(image: Image.Image) -> bytes:
     return output.getvalue()
 
 
-def _orientation_degrees(executable: str, image_bytes: bytes) -> int:
-    result = _tesseract_call(executable, image_bytes, "-l", "osd", "--psm", "0")
+def _remaining_ocr_timeout(deadline: float | None) -> float:
+    if deadline is None:
+        return OCR_TIMEOUT_SECONDS
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise OCRUnavailableError("The report exceeded the total OCR processing limit.")
+    return min(OCR_TIMEOUT_SECONDS, remaining)
+
+
+def _orientation_degrees(
+    executable: str,
+    image_bytes: bytes,
+    deadline: float | None = None,
+) -> int:
+    result = _tesseract_call(
+        executable,
+        image_bytes,
+        "-l",
+        "osd",
+        "--psm",
+        "0",
+        timeout=_remaining_ocr_timeout(deadline),
+    )
     if result.returncode != 0:
         return 0
     match = re.search(rb"Rotate:\s*(0|90|180|270)", result.stdout)
     return int(match.group(1)) if match else 0
 
 
-def _ocr_image(image: Image.Image) -> dict:
+def _ocr_image(image: Image.Image, deadline: float | None = None) -> dict:
     executable = _tesseract_binary()
     if image.width * image.height > MAX_IMAGE_PIXELS:
         raise ReportExtractionError(
@@ -135,7 +163,7 @@ def _ocr_image(image: Image.Image) -> dict:
 
     image = image.convert("RGB")
     initial_bytes = _image_bytes(image)
-    rotation = _orientation_degrees(executable, initial_bytes)
+    rotation = _orientation_degrees(executable, initial_bytes, deadline)
     if rotation:
         image = image.rotate(-rotation, expand=True, fillcolor="white")
 
@@ -146,7 +174,14 @@ def _ocr_image(image: Image.Image) -> dict:
     prepared = prepared.filter(ImageFilter.MedianFilter(size=3)).filter(ImageFilter.SHARPEN)
     image_bytes = _image_bytes(prepared)
     result = _tesseract_call(
-        executable, image_bytes, "-l", "eng", "--psm", "6", "tsv"
+        executable,
+        image_bytes,
+        "-l",
+        "eng",
+        "--psm",
+        "6",
+        "tsv",
+        timeout=_remaining_ocr_timeout(deadline),
     )
     if result.returncode != 0:
         detail = result.stderr.decode("utf-8", "replace").strip()
@@ -228,6 +263,7 @@ def _extract_pdf(content: bytes) -> list[dict]:
 
         pages = []
         ocr_pages = 0
+        ocr_deadline = time.monotonic() + MAX_REPORT_OCR_SECONDS
         for index, page in enumerate(document, start=1):
             selectable_text = page.get_text("text") or ""
             compact_text = re.sub(r"\s+", "", selectable_text)
@@ -240,13 +276,16 @@ def _extract_pdf(content: bytes) -> list[dict]:
                 raise ReportExtractionError(
                     f"OCR is limited to {MAX_OCR_PAGES} scanned pages per report."
                 )
-            pixmap = page.get_pixmap(matrix=pymupdf.Matrix(2, 2), alpha=False)
-            if pixmap.width * pixmap.height > MAX_IMAGE_PIXELS:
+            page_rect = page.rect
+            estimated_width = math.ceil(page_rect.width * 2)
+            estimated_height = math.ceil(page_rect.height * 2)
+            if estimated_width * estimated_height > MAX_IMAGE_PIXELS:
                 raise ReportExtractionError(
                     f"Rendered page {index} exceeds the OCR pixel processing limit."
                 )
+            pixmap = page.get_pixmap(matrix=pymupdf.Matrix(2, 2), alpha=False)
             image = Image.open(BytesIO(pixmap.tobytes("png")))
-            ocr = _ocr_image(image)
+            ocr = _ocr_image(image, deadline=ocr_deadline)
             pages.append(_page_text_record(
                 index,
                 "tesseract_ocr",
@@ -259,20 +298,21 @@ def _extract_pdf(content: bytes) -> list[dict]:
         document.close()
 
 
-def _extract_image(content: bytes) -> list[dict]:
+def _extract_image(content: bytes, media_type: str) -> list[dict]:
     try:
         with Image.open(BytesIO(content)) as probe:
             image_format = probe.format
             width, height = probe.size
             probe.verify()
-        if image_format not in {"JPEG", "PNG"}:
+        expected_format = {"image/jpeg": "JPEG", "image/png": "PNG"}.get(media_type)
+        if image_format not in {"JPEG", "PNG"} or image_format != expected_format:
             raise ReportExtractionError("The image content does not match JPEG or PNG.")
         if width * height > MAX_IMAGE_PIXELS:
             raise ReportExtractionError(
                 f"Image dimensions exceed the {MAX_IMAGE_PIXELS:,}-pixel processing limit."
             )
         with Image.open(BytesIO(content)) as image:
-            ocr = _ocr_image(image)
+            ocr = _ocr_image(image, deadline=time.monotonic() + MAX_REPORT_OCR_SECONDS)
     except (UnidentifiedImageError, OSError, Image.DecompressionBombError) as exc:
         raise ReportExtractionError("The image could not be decoded safely.") from exc
     return [_page_text_record(
@@ -307,11 +347,11 @@ def _parse_numeric_value(operator: str | None, number_text: str) -> tuple[float 
     return value, None
 
 
-def _range_status(value: float | None, reference_range: str | None) -> str:
+def compare_to_supplied_range(value: float | None, reference_range: str | None) -> str:
     if value is None or not reference_range:
         return "needs_review"
     simple = re.fullmatch(
-        r"\s*(\d+(?:\.\d+)?)\s*(?:-|–|—|to)\s*(\d+(?:\.\d+)?)\s*",
+        r"\s*(-?\d+(?:\.\d+)?)\s*(?:-|–|—|to)\s*(-?\d+(?:\.\d+)?)\s*",
         reference_range,
         flags=re.IGNORECASE,
     )
@@ -324,7 +364,7 @@ def _range_status(value: float | None, reference_range: str | None) -> str:
         if value > upper:
             return "above_supplied_range"
         return "within_supplied_range"
-    threshold = re.fullmatch(r"\s*(<=|>=|<|>|≤|≥)\s*(\d+(?:\.\d+)?)\s*", reference_range)
+    threshold = re.fullmatch(r"\s*(<=|>=|<|>|≤|≥)\s*(-?\d+(?:\.\d+)?)\s*", reference_range)
     if threshold:
         operator, bound_text = threshold.groups()
         bound = float(bound_text)
@@ -332,6 +372,10 @@ def _range_status(value: float | None, reference_range: str | None) -> str:
             return "below_supplied_threshold" if value < bound else "at_or_above_supplied_threshold"
         return "below_supplied_range" if value <= bound else "within_supplied_range"
     return "needs_review"
+
+
+# Keep the historic internal name available for extraction parsing.
+_range_status = compare_to_supplied_range
 
 
 def parse_extracted_pages(pages: list[dict], schema: dict) -> dict:
@@ -454,7 +498,7 @@ def extract_report(content: bytes, media_type: str, schema_path: Path = DEFAULT_
             raise ReportExtractionError("The file is not a valid PDF.")
         pages = _extract_pdf(content)
     else:
-        pages = _extract_image(content)
+        pages = _extract_image(content, media_type)
 
     with Path(schema_path).open(encoding="utf-8") as file:
         schema = json.load(file)

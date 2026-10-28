@@ -1,6 +1,7 @@
 # Verified in the project's mlenv environment with Python 3.12.14.
 fastapi==0.162.0
 google-genai==2.33.0
+httpx==0.28.1
 numpy==2.5.2
 pandas==2.2.3
 Pillow==12.2.0
