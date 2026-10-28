@@ -31,8 +31,8 @@ html[data-theme="dark"] .inline-error{background:#452522;border-color:#814840;co
 html[data-theme="dark"] input,html[data-theme="dark"] select{background:#14211d;color:var(--ink);border-color:var(--line)}
 @media(max-width:760px){.topbar,.hero-wrap,.workflow-strip,.method-section,.notice{width:calc(100% - 32px)}.hero-wrap{grid-template-columns:1fr;gap:35px}.theme-toggle small{display:none}}
 
-.signal-ticker{overflow:hidden;display:flex;justify-content:center;align-items:center;gap:24px;padding:13px 20px;background:var(--green);color:#dff3e7;font:700 10px Manrope,sans-serif;letter-spacing:1.6px;white-space:nowrap}
-.signal-ticker i{font-style:normal;color:#8fd2b2;font-size:13px}
+.signal-ticker{overflow:hidden;display:flex;justify-content:center;align-items:center;gap:24px;padding:11px 20px;background:transparent;border-top:1px solid var(--line);border-bottom:1px solid var(--line);color:var(--muted);font:700 10px Manrope,sans-serif;letter-spacing:1.6px;white-space:nowrap}
+.signal-ticker i{font-style:normal;color:var(--green);font-size:13px}
 .story-section{width:min(1180px,calc(100% - 72px));margin:0 auto 100px;display:grid;grid-template-columns:.82fr 1.18fr;gap:70px;align-items:center}
 .story-intro h2{font:800 47px/1.08 Manrope,sans-serif;letter-spacing:-2.2px;margin:0 0 17px;color:var(--ink)}
 .story-intro h2 em{font-style:normal;color:var(--green)}
@@ -63,15 +63,15 @@ html[data-theme="dark"] .story-canvas{background:linear-gradient(135deg,#1d4133,
 /* Fluid layout guards for laptop, tablet, and wide browser sizes */
 html,body,#root{width:100%;max-width:100%;overflow-x:hidden}
 .app-shell{overflow:hidden}
-.topbar,.hero-wrap,.workflow-strip,.story-section,.method-section,.numbers-section,.notice{width:min(1240px,calc(100% - clamp(32px,8vw,112px)))}
+.topbar,.hero-wrap,.workflow-strip,.story-section,.method-section,.numbers-section,.notice{width:min(1440px,calc(100% - clamp(32px,6vw,96px)))}
 .hero-wrap{grid-template-columns:minmax(0,1.04fr) minmax(0,.96fr);gap:clamp(28px,5vw,72px);min-height:clamp(390px,42vw,540px)}
-.hero-copy{min-width:0}.hero-copy h1{font-size:clamp(38px,4.6vw,68px);letter-spacing:clamp(-2px,-.2vw,-3.5px)}
+.hero-copy{min-width:0;max-width:680px}.hero-copy h1{font-size:clamp(42px,4.8vw,76px);letter-spacing:clamp(-2px,-.2vw,-3.5px)}
 .hero-lede{font-size:clamp(14px,1.35vw,17px)}
-.hero-art{min-width:0;min-height:clamp(300px,32vw,460px)}
+.hero-art{min-width:0;min-height:clamp(340px,34vw,540px)}
 .workflow-strip{padding-inline:clamp(18px,3vw,42px)}
 .story-section{grid-template-columns:minmax(260px,.78fr) minmax(0,1.22fr);gap:clamp(28px,6vw,88px)}
 .story-intro h2{font-size:clamp(36px,3.8vw,53px)}
-.story-canvas{min-height:clamp(350px,38vw,500px)}
+.story-canvas{min-height:clamp(380px,38vw,560px)}
 .story-orbit{width:min(480px,75vw);height:min(480px,75vw)}
 .numbers-section{grid-template-columns:repeat(3,minmax(0,1fr)) minmax(150px,1.35fr)}
 @media(max-width:980px){
@@ -106,6 +106,12 @@ html,body,#root{width:100%;max-width:100%;overflow-x:hidden}
   .numbers-section div{border-right:0}
   .numbers-section div:nth-child(3){grid-column:1/-1}
   .numbers-section p{grid-column:1/-1}
+}
+@media(min-width:1500px){
+  .topbar{height:92px}
+  .hero-wrap{margin-top:42px}
+  .workflow-strip{padding-block:27px}
+  .signal-ticker{padding-block:14px}
 }
 @media(max-width:420px){
   html,body,#root{min-width:0}
