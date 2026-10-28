@@ -347,6 +347,30 @@ def _parse_numeric_value(operator: str | None, number_text: str) -> tuple[float 
     return value, None
 
 
+def _table_row_lines(page: dict, alias_index: dict) -> list[dict]:
+    lines = page.get("lines", [])
+    rows = []
+    for index in range(len(lines) - 3):
+        label = (lines[index].get("text") or "").strip()
+        if alias_index.get(_normalise_label(label)) is None:
+            continue
+        value_line = (lines[index + 1].get("text") or "").strip()
+        unit_line = (lines[index + 2].get("text") or "").strip()
+        range_line = (lines[index + 3].get("text") or "").strip()
+        value_match = re.fullmatch(
+            r"(?P<operator>[<>≤≥]=?\s*)?(?P<value>-?\d+(?:[.,]\d+)?)",
+            value_line,
+        )
+        if not value_match or not unit_line or not range_line:
+            continue
+        rows.append({
+            "line_number": lines[index].get("line_number"),
+            "text": " ".join((label, value_line, unit_line, range_line)),
+            "confidence": lines[index].get("confidence"),
+        })
+    return rows
+
+
 def compare_to_supplied_range(value: float | None, reference_range: str | None) -> str:
     if value is None or not reference_range:
         return "needs_review"
@@ -385,7 +409,14 @@ def parse_extracted_pages(pages: list[dict], schema: dict) -> dict:
     unresolved_lines = []
 
     for page in pages:
-        for line in page.get("lines", []):
+        lines = list(page.get("lines", []))
+        existing_text = {line.get("text") for line in lines}
+        lines.extend(
+            row
+            for row in _table_row_lines(page, alias_index)
+            if row["text"] not in existing_text
+        )
+        for line in lines:
             source_line = (line.get("text") or "").strip()
             if not source_line:
                 continue

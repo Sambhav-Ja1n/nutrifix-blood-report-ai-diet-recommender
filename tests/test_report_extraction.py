@@ -77,6 +77,29 @@ class ReportExtractionTests(unittest.TestCase):
         self.assertEqual(result["biomarkers"][0]["provenance"]["page_number"], 1)
         self.assertTrue(all(row["review_required"] for row in result["biomarkers"]))
 
+    def test_digital_table_with_separate_lines_is_reconstructed(self):
+        pdf = make_digital_pdf([[
+            "Test Name",
+            "Result",
+            "Unit",
+            "Reference Range",
+            "Hemoglobin",
+            "13.8",
+            "g/dL",
+            "12.0 - 16.0",
+            "Platelet count",
+            "250",
+            "10^3/uL",
+            "150 - 450",
+        ]])
+        result = extract_report(pdf, "application/pdf")
+        self.assertEqual(
+            [row["canonical_biomarker"] for row in result["biomarkers"]],
+            ["LBXHGB", "LBXPLTSI"],
+        )
+        self.assertEqual(result["biomarkers"][0]["reference_range"], "12.0 - 16.0")
+        self.assertEqual(result["biomarkers"][1]["value"], 250.0)
+
     @unittest.skipUnless(OCR_AVAILABLE, "Tesseract and a readable test font are required")
     def test_scanned_pdf_uses_tesseract_with_field_confidence(self):
         result = extract_report(
