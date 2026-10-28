@@ -36,6 +36,33 @@ const initialReview = (candidate) => ({
   confirmed: false,
 });
 
+const readJsonResponse = async (response, fallbackMessage) => {
+  const body = await response.text();
+  if (!body.trim()) {
+    throw new Error(
+      response.ok
+        ? fallbackMessage
+        : "The NutriFix API returned an empty response. Start the API with `uvicorn api:app --reload` and try again.",
+    );
+  }
+
+  let data;
+  try {
+    data = JSON.parse(body);
+  } catch {
+    throw new Error(
+      response.ok
+        ? "The NutriFix API returned an invalid response."
+        : "The NutriFix API returned an invalid response. Check that the API is running and try again.",
+    );
+  }
+
+  if (!response.ok) {
+    throw new Error(data.detail || fallbackMessage);
+  }
+  return data;
+};
+
 function App() {
   const [page, setPage] = useState("home");
   const [file, setFile] = useState(null);
@@ -77,8 +104,7 @@ function App() {
       const body = new FormData();
       body.append("file", file);
       const response = await fetch(`${API}/extract`, { method: "POST", body });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.detail || "Report extraction failed.");
+      const data = await readJsonResponse(response, "Report extraction failed.");
       setExtraction(data);
       setReview((data.biomarkers || []).map(initialReview));
       setPage("review");
@@ -116,8 +142,7 @@ function App() {
           reviewed_by_user: true,
         })) }),
       });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.detail || "Analysis failed.");
+      const data = await readJsonResponse(response, "Analysis failed.");
       setAnalysis(data);
       setRecommendations(null);
       setPage("results");
@@ -152,8 +177,7 @@ function App() {
           biomarkers: usable.map((row) => ({ ...row, reviewed_by_user: true })),
         }),
       });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.detail || "Could not prepare food guidance.");
+      const data = await readJsonResponse(response, "Could not prepare food guidance.");
       setRecommendations(data.data);
     } catch (cause) {
       setError(cause.message || "The recommendation service is unavailable.");
