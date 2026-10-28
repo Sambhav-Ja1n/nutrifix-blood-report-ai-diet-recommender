@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import "./App.css";
 
@@ -36,6 +36,21 @@ const initialReview = (candidate) => ({
   confirmed: false,
 });
 
+const errorMessage = (cause, fallback) => {
+  if (typeof cause?.message === "string") return cause.message;
+  if (typeof cause?.message?.detail === "string") return cause.message.detail;
+  if (typeof cause?.detail === "string") return cause.detail;
+  if (typeof cause === "string") return cause;
+  if (cause && typeof cause === "object") {
+    try {
+      return JSON.stringify(cause);
+    } catch {
+      return fallback;
+    }
+  }
+  return fallback;
+};
+
 const readJsonResponse = async (response, fallbackMessage) => {
   const body = await response.text();
   if (!body.trim()) {
@@ -65,6 +80,7 @@ const readJsonResponse = async (response, fallbackMessage) => {
 
 function App() {
   const [page, setPage] = useState("home");
+  const [theme, setTheme] = useState(() => localStorage.getItem("nutrifix-theme") || "light");
   const [file, setFile] = useState(null);
   const [extraction, setExtraction] = useState(null);
   const [review, setReview] = useState([]);
@@ -81,6 +97,11 @@ function App() {
   const [age, setAge] = useState("");
   const [dietaryGuidance, setDietaryGuidance] = useState("");
   const fileInput = useRef(null);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem("nutrifix-theme", theme);
+  }, [theme]);
 
   const chooseFile = (nextFile) => {
     setError("");
@@ -109,7 +130,7 @@ function App() {
       setReview((data.biomarkers || []).map(initialReview));
       setPage("review");
     } catch (cause) {
-      setError(cause.message || "Could not connect to the local NutriFix API.");
+      setError(errorMessage(cause, "Could not connect to the local NutriFix API."));
     } finally {
       setBusy(false);
     }
@@ -147,7 +168,7 @@ function App() {
       setRecommendations(null);
       setPage("results");
     } catch (cause) {
-      setError(cause.message || "Could not analyze the reviewed values.");
+      setError(errorMessage(cause, "Could not analyze the reviewed values."));
     } finally {
       setBusy(false);
     }
@@ -180,7 +201,7 @@ function App() {
       const data = await readJsonResponse(response, "Could not prepare food guidance.");
       setRecommendations(data.data);
     } catch (cause) {
-      setError(cause.message || "The recommendation service is unavailable.");
+      setError(errorMessage(cause, "The recommendation service is unavailable."));
     } finally {
       setBusy(false);
     }
@@ -197,6 +218,7 @@ function App() {
       <nav aria-label="Main navigation">
         <button onClick={reset}>Home</button>
         <a href="#methodology">How it works</a>
+        <button className="theme-toggle" aria-label={`Switch to ${theme === "light" ? "dark" : "light"} mode`} onClick={() => setTheme((current) => current === "light" ? "dark" : "light")}><span>{theme === "light" ? "☾" : "☀"}</span><small>{theme === "light" ? "Dark" : "Light"}</small></button>
         <button className="nav-action" onClick={() => setPage("upload")}>Analyze a report <span>↗</span></button>
       </nav>
     </header>
