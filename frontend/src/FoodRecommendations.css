@@ -1,0 +1,29 @@
+.food-recommendation-form,
+.food-results {
+  margin-top: 2rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid rgba(100, 116, 139, 0.2);
+}
+.food-recommendation-form .section-heading { margin-bottom: 1.25rem; }
+.profile-label { display: block; margin: 1rem 0 0.45rem; font-weight: 600; }
+.profile-select, .profile-input {
+  display: block; width: 100%; min-height: 46px; padding: 0.75rem 0.9rem;
+  border: 1px solid #cbd5e1; border-radius: 10px; background: white;
+  color: #172b2b; font: inherit; box-sizing: border-box;
+}
+.profile-checkbox { display: flex; align-items: center; gap: 0.55rem; margin-top: 0.85rem; }
+.food-recommendation-form > .button-primary { margin-top: 1.25rem; }
+.food-results > h2 { margin: 0.4rem 0 0.75rem; }
+.food-finding-card, .recommendation-notes {
+  margin-top: 1rem; padding: 1.25rem; border: 1px solid #dce8e5;
+  border-radius: 14px; background: #fff;
+}
+.food-finding-card h3 { margin: 0 0 0.5rem; }
+.food-finding-card h4 { margin: 1rem 0 0.6rem; }
+.food-finding-card p { line-height: 1.6; }
+.recommended-food-list { display: grid; gap: 0.75rem; }
+.recommended-food { padding: 0.9rem; border-radius: 10px; background: #f3f8f6; }
+.recommended-food p { margin: 0.35rem 0; }
+.recommended-food small, .evidence-note { color: #526565; }
+.food-finding-header { display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; }
+.recommendation-notes ul { padding-left: 1.25rem; line-height: 1.6; }

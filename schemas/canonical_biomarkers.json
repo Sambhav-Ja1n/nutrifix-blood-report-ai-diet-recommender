@@ -1,0 +1,176 @@
+
+{
+  "schema_version": "1.1.0",
+  "project": "NutriFix",
+  "source": {
+    "name": "NHANES",
+    "cycle": "2017-2018",
+    "documentation": "CDC/NCHS official codebooks for CBC_J, FERTIN_J, and DEMO_J",
+    "purpose": "Research and development; not a clinically validated diagnostic system"
+  },
+  "identifier": {
+    "canonical_name": "participant_id",
+    "source_column": "SEQN",
+    "use_as_model_feature": false
+  },
+  "biomarkers": {
+    "white_blood_cell_count": {
+      "display_name": "White Blood Cell Count",
+      "source_column": "LBXWBCSI",
+      "source_unit": "10^3 cells/uL",
+      "canonical_unit": "10^3 cells/uL",
+      "data_type": "numeric"
+    },
+    "lymphocyte_percentage": {
+      "display_name": "Lymphocyte Percentage",
+      "source_column": "LBXLYPCT",
+      "source_unit": "%",
+      "canonical_unit": "%",
+      "data_type": "numeric"
+    },
+    "monocyte_percentage": {
+      "display_name": "Monocyte Percentage",
+      "source_column": "LBXMOPCT",
+      "source_unit": "%",
+      "canonical_unit": "%",
+      "data_type": "numeric"
+    },
+    "neutrophil_percentage": {
+      "display_name": "Segmented Neutrophil Percentage",
+      "source_column": "LBXNEPCT",
+      "source_unit": "%",
+      "canonical_unit": "%",
+      "data_type": "numeric"
+    },
+    "eosinophil_percentage": {
+      "display_name": "Eosinophil Percentage",
+      "source_column": "LBXEOPCT",
+      "source_unit": "%",
+      "canonical_unit": "%",
+      "data_type": "numeric"
+    },
+    "basophil_percentage": {
+      "display_name": "Basophil Percentage",
+      "source_column": "LBXBAPCT",
+      "source_unit": "%",
+      "canonical_unit": "%",
+      "data_type": "numeric"
+    },
+    "absolute_lymphocyte_count": {
+      "display_name": "Absolute Lymphocyte Count",
+      "source_column": "LBDLYMNO",
+      "source_unit": "10^3 cells/uL",
+      "canonical_unit": "10^3 cells/uL",
+      "data_type": "numeric"
+    },
+    "absolute_monocyte_count": {
+      "display_name": "Absolute Monocyte Count",
+      "source_column": "LBDMONO",
+      "source_unit": "10^3 cells/uL",
+      "canonical_unit": "10^3 cells/uL",
+      "data_type": "numeric"
+    },
+    "absolute_neutrophil_count": {
+      "display_name": "Absolute Segmented Neutrophil Count",
+      "source_column": "LBDNENO",
+      "source_unit": "10^3 cells/uL",
+      "canonical_unit": "10^3 cells/uL",
+      "data_type": "numeric"
+    },
+    "absolute_eosinophil_count": {
+      "display_name": "Absolute Eosinophil Count",
+      "source_column": "LBDEONO",
+      "source_unit": "10^3 cells/uL",
+      "canonical_unit": "10^3 cells/uL",
+      "data_type": "numeric"
+    },
+    "absolute_basophil_count": {
+      "display_name": "Absolute Basophil Count",
+      "source_column": "LBDBANO",
+      "source_unit": "10^3 cells/uL",
+      "canonical_unit": "10^3 cells/uL",
+      "data_type": "numeric"
+    },
+    "red_blood_cell_count": {
+      "display_name": "Red Blood Cell Count",
+      "source_column": "LBXRBCSI",
+      "source_unit": "10^6 cells/uL",
+      "canonical_unit": "10^6 cells/uL",
+      "data_type": "numeric"
+    },
+    "hemoglobin": {
+      "display_name": "Hemoglobin",
+      "source_column": "LBXHGB",
+      "source_unit": "g/dL",
+      "canonical_unit": "g/dL",
+      "data_type": "numeric"
+    },
+    "hematocrit": {
+      "display_name": "Hematocrit",
+      "source_column": "LBXHCT",
+      "source_unit": "%",
+      "canonical_unit": "%",
+      "data_type": "numeric"
+    },
+    "mean_corpuscular_volume": {
+      "display_name": "Mean Corpuscular Volume",
+      "source_column": "LBXMCVSI",
+      "source_unit": "fL",
+      "canonical_unit": "fL",
+      "data_type": "numeric"
+    },
+    "mean_corpuscular_hemoglobin": {
+      "display_name": "Mean Corpuscular Hemoglobin",
+      "source_column": "LBXMCHSI",
+      "source_unit": "pg",
+      "canonical_unit": "pg",
+      "data_type": "numeric"
+    },
+    "mean_corpuscular_hemoglobin_concentration": {
+      "display_name": "Mean Corpuscular Hemoglobin Concentration",
+      "source_column": "LBXMC",
+      "source_unit": "g/dL",
+      "canonical_unit": "g/dL",
+      "data_type": "numeric"
+    },
+    "red_cell_distribution_width": {
+      "display_name": "Red Cell Distribution Width",
+      "source_column": "LBXRDW",
+      "source_unit": "%",
+      "canonical_unit": "%",
+      "data_type": "numeric"
+    },
+    "platelet_count": {
+      "display_name": "Platelet Count",
+      "source_column": "LBXPLTSI",
+      "source_unit": "10^3 cells/uL",
+      "canonical_unit": "10^3 cells/uL",
+      "data_type": "numeric"
+    },
+    "mean_platelet_volume": {
+      "display_name": "Mean Platelet Volume",
+      "source_column": "LBXMPSI",
+      "source_unit": "fL",
+      "canonical_unit": "fL",
+      "data_type": "numeric"
+    },
+    "nucleated_red_blood_cells": {
+      "display_name": "Nucleated Red Blood Cells",
+      "source_column": "LBXNRBC",
+      "source_unit": "cells per 100 WBC",
+      "canonical_unit": "cells per 100 WBC",
+      "data_type": "numeric"
+    },
+    "ferritin": {
+      "display_name": "Ferritin",
+      "source_column": "LBXFER",
+      "source_unit": "ng/mL",
+      "canonical_unit": "ng/mL",
+      "data_type": "numeric",
+      "eligibility_note": "Interpret missingness in light of the NHANES ferritin eligible sample.",
+      "alternate_source_column": "LBDFERSI",
+      "alternate_source_unit": "ug/L",
+      "alternate_is_separate_biomarker": false
+    }
+  }
+}
