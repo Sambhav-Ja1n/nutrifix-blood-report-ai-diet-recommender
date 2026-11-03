@@ -368,6 +368,7 @@ class ReportApiTests(unittest.IsolatedAsyncioTestCase):
     async def test_extraction_worker_receives_no_application_credentials(self):
         environment = _report_worker_environment()
         self.assertIn("PATH", environment)
+        self.assertNotIn("GROQ_API_KEY", environment)
         self.assertNotIn("GEMINI_API_KEY", environment)
         self.assertNotIn("GOOGLE_API_KEY", environment)
         self.assertNotIn("GH_TOKEN", environment)

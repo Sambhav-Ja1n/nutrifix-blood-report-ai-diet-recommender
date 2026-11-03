@@ -6,7 +6,7 @@ NutriFix is a research prototype for extracting a small set of values from suppo
 
 ## What is implemented
 
-- A FastAPI service with local text/OCR extraction, a strict user-confirmed report-analysis contract, report-supplied interval comparisons, and a guarded AI nutrition-education endpoint.
+- A FastAPI service with local text/OCR extraction, a strict user-confirmed report-analysis contract, report-supplied interval comparisons, and a Groq-backed AI nutrition-education endpoint screened by Prompt Guard.
 - A React/Vite interface with upload, editable extraction review, explicit confirmation, report-range analysis, exploratory score display, and optional nutrition education.
 - A separate Streamlit explorer for the NHANES cohort and the existing Isolation Forest outputs.
 - Scripts to verify downloaded files, merge NHANES 2017–2018 CBC, demographics, and ferritin data, audit data quality, prepare CBC features, and run an Isolation Forest baseline.
@@ -19,7 +19,7 @@ The API uses local Tesseract OCR for scanned PDF pages and JPEG/PNG images, and 
 
 ### Nutrition guidance status
 
-The recommendation endpoint calls the Google Gemini API when configured. It is intended for general nutrition education. The project does not connect a curated medical evidence database, does not provide validated personalized treatment advice, and must not be used to diagnose or treat disease.
+The recommendation endpoint uses Groq's Prompt Guard 2 to screen free-text dietary inputs and `openai/gpt-oss-20b` to generate general nutrition education. It does not connect a curated medical evidence database, provide validated personalized treatment advice, or diagnose or treat disease.
 
 ## Architecture and data flow
 
@@ -39,14 +39,14 @@ flowchart TD
   R --> S[User confirmation and canonical/unit validation]
   S --> T[Report-supplied range comparison and explanation]
   T --> U[Exploratory reference-cohort anomaly scoring]
-  S --> M[Guarded Gemini nutrition-education request]
+  S --> M[Prompt Guard screening and Groq nutrition-education request]
 ```
 
 The API/UI path and the NHANES cohort-analysis path are separate. The comparison script reads the merged local dataset directly and writes its outputs under `outputs/metrics/`; it does not replace the report API. The frontend supports upload → editable candidate review → explicit confirmation → analysis → optional nutrition education. A Vite development proxy forwards `/api` to the local FastAPI service. Report analysis compares values only with ranges supplied in the report and can show exploratory model rankings when all 15 required CBC features are confirmed and the local scoring bundle is available.
 
 ## Application screenshots
 
-The review and results screenshots use a clearly labeled synthetic PDF created for the local browser check. It contains no real patient data. The recommendation screenshot shows the input form; a Gemini response was not generated for the screenshots.
+The review and results screenshots use a clearly labeled synthetic PDF created for the local browser check. It contains no real patient data. The recommendation screenshot shows the input form; a Groq response was not generated for the screenshots.
 
 | Screen | Preview |
 | --- | --- |
@@ -66,7 +66,7 @@ For the current implementation summary, cleanup record, test results, and limita
 NutriFix/
 ├── api.py                         # FastAPI endpoints
 ├── app.py                         # Streamlit NHANES explorer
-├── food_recommendations.py        # Gemini-backed education response
+├── food_recommendations.py        # Prompt Guard screening and Groq education response
 ├── frontend/                      # React and Vite client
 ├── schemas/                       # Canonical biomarker definitions
 ├── scripts/                       # Download, merge, audit, and model commands
@@ -82,7 +82,7 @@ NutriFix/
 
 - Python 3.12, pandas, NumPy, scikit-learn, SciPy, and PyArrow
 - FastAPI, Pydantic, Uvicorn, PyMuPDF, Pillow, and system Tesseract OCR
-- Google Gen AI SDK with an optional Gemini API key
+- Groq API with an optional Groq API key; Prompt Guard 2 screens free-text inputs before GPT-OSS 20B generates recommendations
 - Streamlit for cohort exploration
 - React, Vite, and npm for the upload interface
 
@@ -112,7 +112,7 @@ cp .env.example .env
 
 Install the system Tesseract package and its English/orientation data with Garuda's package manager before using scanned reports. No Python package installs Tesseract.
 
-Set `GEMINI_API_KEY` in `.env` only if you intend to call the recommendation endpoint. Never commit `.env`. The API defaults to the model name configured in `GEMINI_MODEL` or `gemini-2.5-flash`.
+Set `GROQ_API_KEY` in `.env` only if you intend to call the recommendation endpoint. Never commit `.env`. The generation model defaults to `openai/gpt-oss-20b` and can be set with `GROQ_MODEL`; `GROQ_GUARD_MODEL` defaults to `meta-llama/llama-prompt-guard-2-86m`.
 
 For the frontend, use a Node version satisfying Vite's lockfile requirement (`^20.19.0` or `>=22.12.0`), then run:
 
@@ -128,13 +128,13 @@ The Vite dev server proxies `/api` to the local API. In another terminal, from t
 uvicorn api:app --reload --host 127.0.0.1 --port 8000
 ```
 
-Open the Vite address printed by `npm run dev`. Report extraction and analysis run locally. Optional nutrition recommendations send confirmed structured biomarker values and dietary preferences to Google Gemini when configured; they are not available offline.
+Open the Vite address printed by `npm run dev`. Report extraction and analysis run locally. Optional nutrition recommendations send confirmed structured biomarker values and dietary preferences to Groq when configured; they are not available offline.
 
 The FastAPI health endpoint is `/api/health`; interactive API documentation is provided by FastAPI at `/docs` while the local service is running.
 
 ## Deploying the web app to Vercel
 
-The repository is configured as a single Vercel project: Vercel builds the Vite client from `frontend/` and serves the FastAPI application in `api.py`. Import the GitHub repository into Vercel with the repository root as the project root; the build command and Python entrypoint are defined in `pyproject.toml`. Set `GEMINI_API_KEY` in Vercel Project Settings if you want the optional nutrition-education endpoint. `GEMINI_MODEL` is optional.
+The repository is configured as a single Vercel project: Vercel builds the Vite client from `frontend/` and serves the FastAPI application in `api.py`. Import the GitHub repository into Vercel with the repository root as the project root; the build command and Python entrypoint are defined in `pyproject.toml`. Set `GROQ_API_KEY` in Vercel Project Settings if you want the optional nutrition-education endpoint. `GROQ_MODEL` and `GROQ_GUARD_MODEL` are optional.
 
 The Vercel function can extract selectable text from PDFs. Scanned PDFs and uploaded images need the Tesseract system executable, which is not included in this Vercel setup, so OCR is unavailable there. The local Tesseract workflow remains available with the documented local setup. The NHANES Streamlit explorer and its local datasets/model artifacts are not part of this web deployment.
 
@@ -180,7 +180,7 @@ The model-comparison, report-extraction, and API workflow tests use Python's sta
 python -m unittest discover -s tests -v
 ```
 
-Last verified on 2026-10-28 in `mlenv`: 42 tests passed. Tests use synthetic uploads, an in-memory synthetic cohort for model fitting, and mocked recommendation responses; they do not call Gemini. A separate local browser check used a labeled synthetic CBC PDF through upload, review, and analysis, and verified five model scores. These checks do not establish clinical or OCR accuracy. `scripts/test_pipeline_outputs.py` is a separate output-check script and requires the generated baseline prediction, explanation, and report files to be present.
+Last verified on 2026-10-28 in `mlenv`: 42 tests passed. Tests use synthetic uploads, an in-memory synthetic cohort for model fitting, and mocked recommendation responses; they do not call Groq. A separate local browser check used a labeled synthetic CBC PDF through upload, review, and analysis, and verified five model scores. These checks do not establish clinical or OCR accuracy. `scripts/test_pipeline_outputs.py` is a separate output-check script and requires the generated baseline prediction, explanation, and report files to be present.
 
 ## Anomaly-detection limitations
 
@@ -192,7 +192,7 @@ The report API compares values only with intervals supplied by the user from the
 
 - Do not commit `.env`, API keys, health reports, patient data, raw datasets, merged datasets, or generated participant-level outputs. Root `.gitignore` excludes these paths and file types by default.
 - NHANES is public-use survey data, but local merged data and reports contain participant-level biomarker and demographic fields and should remain local unless deliberately reviewed.
-- The API reads uploaded content into memory for processing. If the recommendations endpoint is called, the supplied structured biomarkers and preferences are sent to Google's Gemini API; review the provider's terms and your privacy obligations before using real reports.
+- The API reads uploaded content into memory for processing. If the recommendations endpoint is called, the reviewed biomarker data and dietary preferences are sent to Groq for screening and generation; review the provider's terms and your privacy obligations before using real reports.
 - Treat extracted values and supplied ranges as unverified inputs. The API's parser supports only a narrow set of text patterns and does not validate clinical correctness.
 - The API has no user accounts, report persistence, or access-control layer. Run it locally only. Full extracted text, page lines, and unresolved source lines are omitted from responses by default; `include_source_text=true` explicitly opts into returning them for audit. Candidate biomarker rows retain field-level source snippets. Do not expose the service publicly or send real reports until access control and privacy handling are designed.
 - Analysis and recommendation requests require `reviewed_by_user: true` for each marker. The frontend provides an editable review step, but this client confirmation signal is not proof that a person independently verified the value.
