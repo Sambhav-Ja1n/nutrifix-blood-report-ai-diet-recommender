@@ -1,0 +1,11 @@
+[project]
+name = "nutrifix"
+version = "0.3.0"
+requires-python = ">=3.12,<3.13"
+
+[tool.vercel]
+entrypoint = "api:app"
+
+[tool.vercel.scripts]
+build = "npm --prefix frontend ci && npm --prefix frontend run build"
+

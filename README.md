@@ -132,6 +132,14 @@ Open the Vite address printed by `npm run dev`. Report extraction and analysis r
 
 The FastAPI health endpoint is `/api/health`; interactive API documentation is provided by FastAPI at `/docs` while the local service is running.
 
+## Deploying the web app to Vercel
+
+The repository is configured as a single Vercel project: Vercel builds the Vite client from `frontend/` and serves the FastAPI application in `api.py`. Import the GitHub repository into Vercel with the repository root as the project root; the build command and Python entrypoint are defined in `pyproject.toml`. Set `GEMINI_API_KEY` in Vercel Project Settings if you want the optional nutrition-education endpoint. `GEMINI_MODEL` is optional.
+
+The Vercel function can extract selectable text from PDFs. Scanned PDFs and uploaded images need the Tesseract system executable, which is not included in this Vercel setup, so OCR is unavailable there. The local Tesseract workflow remains available with the documented local setup. The NHANES Streamlit explorer and its local datasets/model artifacts are not part of this web deployment.
+
+The API has no authentication or report access controls. Do not use a public deployment with real health reports; use synthetic/demo data until appropriate access controls and privacy handling are implemented.
+
 ## NHANES data and cohort explorer
 
 The project uses the 2017–2018 NHANES CBC (`CBC_J.xpt`), demographics (`DEMO_J.xpt`), and ferritin (`FERTIN_J.xpt`) public-use files. Download the files and their documentation from the official [NHANES 2017–2018 data page](https://wwwn.cdc.gov/nchs/nhanes/search/DataPage.aspx?Cycle=2017-2018), [CBC_J codebook](https://wwwn.cdc.gov/Nchs/Data/Nhanes/Public/2017/DataFiles/CBC_J.htm), [DEMO_J codebook](https://wwwn.cdc.gov/Nchs/Data/Nhanes/Public/2017/DataFiles/DEMO_J.htm), and [FERTIN_J codebook](https://wwwn.cdc.gov/Nchs/Data/Nhanes/Public/2017/DataFiles/FERTIN_J.htm). Review component-specific eligibility, missingness, and analytic notes before interpreting results.

@@ -4,6 +4,7 @@ import logging
 import os
 import sys
 from threading import BoundedSemaphore
+from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile, Body
 from fastapi.middleware.cors import CORSMiddleware
@@ -18,6 +19,7 @@ from src.nutrifix.report_extraction import (
     OCRUnavailableError,
     ReportExtractionError,
     UnsupportedReportError,
+    extract_report,
     parse_text,
 )
 from src.nutrifix.report_workflow import (
@@ -66,6 +68,14 @@ def _report_worker_environment() -> dict[str, str]:
 async def _extract_report_isolated(content: bytes, content_type: str) -> dict:
     if not _PROCESSING_SLOTS.acquire(blocking=False):
         raise ProcessingBusyError("Local processing capacity is currently full")
+    # Vercel functions can run the extraction in-process, but do not provide
+    # Tesseract or a persistent worker process. Digital PDFs continue to work;
+    # scanned pages return the existing OCR-unavailable response.
+    if os.getenv("VERCEL"):
+        try:
+            return await asyncio.to_thread(extract_report, content, content_type)
+        finally:
+            _PROCESSING_SLOTS.release()
     process = None
     try:
         process = await asyncio.create_subprocess_exec(
@@ -118,6 +128,12 @@ app = FastAPI(
     description="Blood report extraction and AI-assisted food guidance API",
     version="0.3.0",
 )
+
+# In a Vercel build, serve the compiled Vite app from the CDN. Keeping this
+# conditional preserves the usual local FastAPI + Vite development workflow.
+_FRONTEND_DIST = Path(__file__).resolve().parent / "frontend" / "dist"
+if os.getenv("VERCEL") and _FRONTEND_DIST.is_dir():
+    app.frontend("/", directory=str(_FRONTEND_DIST))
 
 app.add_middleware(
     CORSMiddleware,
