@@ -5,7 +5,12 @@ import httpx
 import pymupdf
 from unittest.mock import AsyncMock, patch
 
-from api import ProcessingTimeoutError, _report_worker_environment, app
+from api import (
+    ProcessingTimeoutError,
+    _extract_report_isolated,
+    _report_worker_environment,
+    app,
+)
 from src.nutrifix.report_extraction import OCRUnavailableError
 
 
@@ -36,6 +41,14 @@ class ReportApiTests(unittest.IsolatedAsyncioTestCase):
         response = await self.request("GET", "/api/health")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["status"], "ok")
+
+    async def test_vercel_upload_path_extracts_pdf_in_process(self):
+        with patch.dict("os.environ", {"VERCEL": "1"}):
+            result = await _extract_report_isolated(
+                digital_pdf(), "application/pdf"
+            )
+        self.assertEqual(result["status"], "text_extracted")
+        self.assertEqual(result["extraction_methods"], ["pdf_text"])
 
     async def test_digital_pdf_upload_preserves_fields_and_marks_review(self):
         response = await self.request(

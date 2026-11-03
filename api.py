@@ -19,7 +19,7 @@ from src.nutrifix.report_extraction import (
     OCRUnavailableError,
     ReportExtractionError,
     UnsupportedReportError,
-    extract_report,
+    extract_report as extract_report_content,
     parse_text,
 )
 from src.nutrifix.report_workflow import (
@@ -73,7 +73,7 @@ async def _extract_report_isolated(content: bytes, content_type: str) -> dict:
     # scanned pages return the existing OCR-unavailable response.
     if os.getenv("VERCEL"):
         try:
-            return await asyncio.to_thread(extract_report, content, content_type)
+            return await asyncio.to_thread(extract_report_content, content, content_type)
         finally:
             _PROCESSING_SLOTS.release()
     process = None
