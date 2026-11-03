@@ -16,6 +16,7 @@ GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-20b")
 GROQ_GUARD_MODEL = os.getenv(
     "GROQ_GUARD_MODEL", "meta-llama/llama-prompt-guard-2-86m"
 )
+GROQ_GUARD_THRESHOLD = 0.5
 
 
 BiomarkerInput = ReviewedBiomarker
@@ -119,15 +120,16 @@ async def _screen_untrusted_text(
             messages=[{"role": "user", "content": chunk}],
             max_completion_tokens=32,
         )
-        normalized = label.strip().lower().strip(" .\n\t")
-        if normalized in {"malicious", "label_1"}:
+        try:
+            malicious_score = float(label.strip())
+        except ValueError as exc:
+            raise RuntimeError("Groq Prompt Guard returned an invalid score") from exc
+        if not 0 <= malicious_score <= 1:
+            raise RuntimeError("Groq Prompt Guard returned a score outside [0, 1]")
+        if malicious_score >= GROQ_GUARD_THRESHOLD:
             raise ValueError(
                 "The dietary guidance contains text that cannot be safely used. Please rephrase it."
             )
-        if normalized not in {"benign", "label_0"}:
-            # Unknown guard output fails closed rather than sending unscreened
-            # user text to the generative model.
-            raise RuntimeError("Groq Prompt Guard returned an unknown classification")
 
 
 async def generate_food_recommendations(request: FoodRecommendationRequest) -> dict:

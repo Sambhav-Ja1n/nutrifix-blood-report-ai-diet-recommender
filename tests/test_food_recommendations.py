@@ -11,6 +11,7 @@ from food_recommendations import (
 def reviewed_request(reference_range="12.0 - 15.5"):
     return FoodRecommendationRequest.model_validate({
         "diet": "vegetarian",
+        "food_preferences": ["lentils"],
         "biomarkers": [{
             "canonical_biomarker": "LBXHGB",
             "name": "Hemoglobin",
@@ -43,7 +44,7 @@ class FoodRecommendationTests(unittest.IsolatedAsyncioTestCase):
             patch(
                 "food_recommendations._chat_completion",
                 new_callable=AsyncMock,
-                side_effect=["benign", generated_response],
+                side_effect=["0.0003", generated_response],
             ) as complete,
         ):
             result = await generate_food_recommendations(reviewed_request())
@@ -75,7 +76,7 @@ class FoodRecommendationTests(unittest.IsolatedAsyncioTestCase):
             patch(
                 "food_recommendations._chat_completion",
                 new_callable=AsyncMock,
-                side_effect=["benign", generated_response],
+                side_effect=["0.0003", generated_response],
             ),
         ):
             with self.assertRaisesRegex(RuntimeError, "finding that was not supplied"):
@@ -87,7 +88,7 @@ class FoodRecommendationTests(unittest.IsolatedAsyncioTestCase):
             patch(
                 "food_recommendations._chat_completion",
                 new_callable=AsyncMock,
-                return_value="malicious",
+                return_value="0.9995",
             ) as complete,
         ):
             with self.assertRaisesRegex(ValueError, "cannot be safely used"):
